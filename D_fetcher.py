@@ -4,6 +4,9 @@ import pandas as pd
 from sqlalchemy import create_engine
 from psycopg2.pool import SimpleConnectionPool
 from contextlib import contextmanager
+import psycopg2
+from psycopg2 import sql
+from contextlib import contextmanager
 
 db_connection_string = "postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
 
@@ -89,8 +92,32 @@ def get_distinct_cd_cvm():
         except psycopg2.Error as error:
             print(f"Error executing query: {error}")
             conn.rollback()
+            
+def get_company_name_by_cd_cvm(cd_cvm):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = sql.SQL("""
+            SELECT "DENOM_CIA"
+            FROM bs
+            WHERE "CD_CVM" = %s
+            LIMIT 1;
+        """)
+
+        try:
+            cursor.execute(query, (cd_cvm,))
+            result = cursor.fetchone()
+            if result:
+                print("Query executed successfully.")
+                return result[0]
+            else:
+                print("No company found for CD_CVM:", cd_cvm)
+                return None
+        except psycopg2.Error as error:
+            print(f"Error executing query: {error}")
+            conn.rollback()
             print("Transaction rolled back.")
             return None
+  
 
 
         

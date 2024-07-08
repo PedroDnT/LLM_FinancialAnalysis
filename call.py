@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.callbacks import get_openai_callback
-from fetcher import execute_query_batch, get_distinct_cd_cvm
+from D_fetcher import *
 
 
 def calculate_actual_results(income_statement: pd.DataFrame) -> Tuple[List[Tuple[str, int]], List[str]]:
@@ -90,7 +90,8 @@ def get_financial_prediction(financial_data: str, target_period: str, chain: Run
         'rationale': 'Rationale not provided',
         'direction': 0,
         'magnitude': 'unknown',
-        'confidence': 0.0
+        'confidence': 0.0,
+        'log_prob': 0.0  # Initialize log_prob
     }
 
     # Check if response is an AIMessage object
@@ -123,6 +124,10 @@ def get_financial_prediction(financial_data: str, target_period: str, chain: Run
             except ValueError:
                 prediction['confidence'] = 0.0
 
+    # Clean up the magnitude field
+    if 'cagr' in prediction['magnitude']:
+        prediction['magnitude'] = 'unknown'
+
     prediction['token_usage'] = {
         'total_tokens': cb.total_tokens,
         'prompt_tokens': cb.prompt_tokens,
@@ -150,7 +155,6 @@ def run_predictions(cd_cvm_list: List[str], models_to_test: List[tuple]) -> pd.D
                 income_statement = income_statements.get(cd_cvm)
                 balance_sheet = balance_sheets.get(cd_cvm)
                 cash_flow = cash_flows.get(cd_cvm)
-                
 
                 if income_statement is None or balance_sheet is None or cash_flow is None:
                     continue
@@ -164,24 +168,28 @@ def run_predictions(cd_cvm_list: List[str], models_to_test: List[tuple]) -> pd.D
                 }
 
                 for target_period, actual_result in actual_results:
-                    # Use only t-5 to t-1 data for prediction
-                    relevant_data = {k: v for k, v in financial_statements.items() if k in sorted_dates[-6:-1]}
+                    # Find the index of the target period
+                    target_index = sorted_dates.index(target_period)
+                    # Use only data from periods before the target period
+                    relevant_data = {k: v for k, v in financial_statements.items() if k in sorted_dates[max(0, target_index-5):target_index]}
                     financial_data = json.dumps(relevant_data)
 
                     future = executor.submit(get_financial_prediction, financial_data, target_period, chain)
                     future_to_prediction[(cd_cvm, target_period, actual_result)] = future
-
+                    company_name = get_company_name_by_cd_cvm(cd_cvm)
             for (cd_cvm, target_period, actual_result), future in future_to_prediction.items():
                 try:
                     prediction = future.result()
                     results.append({
+                        'Company': company_name,
                         'Model': model_name,
                         'TREND ANALYSIS': prediction['trend_analysis'],
-                        'RATIO ANALYSIS': prediction['ratio_analysis'],
+                        'RATIO ANALYSIS': prediction['ratio_analysis'].replace('\n', ' '),  # Clean the RATIO ANALYSIS
                         'RATIONALE': prediction['rationale'],
                         'DIRECTION': prediction['direction'],
                         'MAGNITUDE': prediction['magnitude'],
                         'CONFIDENCE LEVEL': prediction['confidence'],
+                        'LOG PROBABILITY': prediction['log_prob'],  # Add log probability to results
                         'ACTUAL DIRECTION': actual_result,
                         'CD_CVM': cd_cvm,
                         'TARGET PERIOD': target_period
@@ -194,10 +202,40 @@ def run_predictions(cd_cvm_list: List[str], models_to_test: List[tuple]) -> pd.D
     return pd.DataFrame(results)
 
 def get_financial_statements_batch(cd_cvm_list: List[str]) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
-    income_statements = execute_query_batch(cd_cvm_list, 'ist')
-    balance_sheets = execute_query_batch(cd_cvm_list, 'bs')
-    cash_flows = execute_query_batch(cd_cvm_list, 'cf')
+    income_statements = execute_query(cd_cvm_list, 'ist')
+    balance_sheets = execute_query(cd_cvm_list, 'bs')
+    cash_flows = execute_query(cd_cvm_list, 'cf')
     return income_statements, balance_sheets, cash_flows
+
+def calculate_metrics(df):
+    from sklearn.metrics import f1_score
+    from sklearn.metrics import precision_score
+
+    unique_cvm_codes = df['CD_CVM'].unique()
+    unique_models = df['Model'].unique()
+    metrics = []
+    for cvm_code in unique_cvm_codes:
+        for model in unique_models:
+            filtered_df = df[(df['CD_CVM'] == cvm_code) & (df['Model'] == model)]
+            if not filtered_df.empty:
+                precision = precision_score(filtered_df['ACTUAL DIRECTION'], filtered_df['DIRECTION'], average='weighted', zero_division=0)
+                f1 = f1_score(filtered_df['ACTUAL DIRECTION'], filtered_df['DIRECTION'], average='weighted', zero_division=0)
+                avg_confidence = filtered_df['CONFIDENCE LEVEL'].mean()
+                mean_log_prob = filtered_df['LOG PROBABILITY'].mean()
+                precision = round(precision, 2)
+                f1 = round(f1, 2)
+                avg_confidence = round(avg_confidence, 2)
+                mean_log_prob = round(mean_log_prob, 2)
+                metrics.append({
+                    'CD_CVM': cvm_code,
+                    'Model': model,
+                    'Precision': precision,
+                    'F1 Score': f1,
+                    'Average Confidence Level': avg_confidence,
+                    'Mean Log Probability': mean_log_prob
+                })
+    return pd.DataFrame(metrics)
+
 # Main execution
 if __name__ == "__main__":
     cd_cvm_list = get_distinct_cd_cvm()
