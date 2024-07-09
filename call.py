@@ -38,28 +38,30 @@ def calculate_actual_results(income_statement: pd.DataFrame) -> Tuple[List[Tuple
 
 def create_prompt_template() -> ChatPromptTemplate:
     template = """
-    As a financial expert, analyze the provided financial statements and predict future earnings for the specified target period. You MUST provide analysis and prediction for the target period. Follow this structure:
+    As a financial expert, your task analyze the provided financial statements and predict future earnings for the specified target period. You MUST provide analysis and prediction for the target period by performing the following actions:
 
     1. Trend Analysis (Panel A): Analyze relevant trends over the past three years.
     2. Ratio Analysis (Panel B): Calculate and analyze  financial ratios you consider relevant and provide economic interpretations of the computed ratios interpret them and implications for future earnings.
     3. Rationale (Panel C): Summarize your analyzes on trend and ration to make a prediction. Explain your prediction reasoning concisely.
-    4. Prediction: State the earnings direction (increase/decrease), magnitude (large/moderate/small), and confidence (0.0-1.0).
-
-    Financial data: {financial_data}
-    Target period: {target_period}
+    4. Prediction: Given your previous analyzes, workout a unified analysis and predict the earnings direction (increase/decrease), magnitude (large/moderate/small), and confidence (0.0-1.0).
+    
+    Directives: Direction will be interpreted as 1 for increase and -1 for decrease.
+    You MUST provide all sections (Panel A, B, C, Direction, Magnitude, and Confidence) for the target period.
+    Be precise in your explanation, focus on explaining rationales and analysis.
 
     Provide your analysis in this format for the target period:
-    Panel A - Trend Analysis: [Brief trend analysis]
-    Panel B - Ratio Analysis: [Brief ratio analysis]
-    Panel C - Rationale: [Concise rationale for prediction]
+    Panel A - Trend Analysis: [Summary of trend analysis]
+    Panel B - Ratio Analysis: [Summary of ratio analysis]
+    Panel C - Rationale: [Summary of rationale for prediction]
     Direction: [increase/decrease]
     Magnitude: [large/moderate/small]
     Confidence: [0.00 to 1.00]
 
-    Note: Direction will be interpreted as 1 for increase and -1 for decrease.
-    You MUST provide all sections (Panel A, B, C, Direction, Magnitude, and Confidence) for the target period.
-    If data is limited, make reasonable assumptions based on available information and state these assumptions in your analysis.
-    Try to maintain response under 500 tokens.
+    Info to analyze:
+
+    Financial data: {financial_data}
+    Target period: {target_period}
+
     """
     return ChatPromptTemplate.from_template(template)
 
@@ -69,11 +71,7 @@ def get_llm(model_name: str, **kwargs) -> ChatOpenAI:
         "model_kwargs": {"logprobs": True, "top_p": 1},
         **kwargs
     }
-    
-    if model_name.startswith('openai/'):
-        return ChatOpenAI(model_name=model_name.split('/')[-1], **base_kwargs)
-    else:
-        return ChatOpenAI(
+    return ChatOpenAI(
             model=model_name,
             openai_api_base="https://openrouter.ai/api/v1",
             openai_api_key=os.getenv("OPENROUTER_API_KEY"),
@@ -236,21 +234,9 @@ def calculate_metrics(df):
                 })
     return pd.DataFrame(metrics)
 
+def main(cvm_code):
+    return run_predictions([cvm_code], models_to_test)
+    
 # Main execution
 if __name__ == "__main__":
-    cd_cvm_list = get_distinct_cd_cvm()
-
-    models_to_test = [
-        ('openai/gpt-4-turbo', {}),
-        ('anthropic/claude-3.5-sonnet', {})
-    ]
-
-    results_df = run_predictions(cd_cvm_list, models_to_test)
-    print(results_df.to_string())
-
-    # Calculate and print metrics
-    predictions = results_df['DIRECTION'].tolist()
-    actual_results = results_df['ACTUAL DIRECTION'].tolist()
-    metrics = calculate_metrics(predictions, actual_results)
-    print("\nMetrics:")
-    print(json.dumps(metrics, indent=2))
+    main()
