@@ -1,3 +1,4 @@
+import os
 import psycopg2
 from psycopg2 import sql
 import pandas as pd
@@ -8,7 +9,7 @@ import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
 
-db_connection_string = "postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
+db_connection_string = os.getenv("DB_CONNECTION_STRING")
 
 # Create a connection pool
 pool = SimpleConnectionPool(1, 20, db_connection_string)
