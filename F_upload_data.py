@@ -7,7 +7,7 @@ import os
 # Database connection string
 user = 
 
-db_connection_string = "postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
+db_connection_string = os.getenv("DB_CONNECTION_STRING")
 
 # Create SQLAlchemy engine
 engine = create_engine(db_connection_string)
