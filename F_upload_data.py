@@ -5,6 +5,8 @@ from sqlalchemy import create_engine
 import os
 
 # Database connection string
+user = 
+
 db_connection_string = "postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
 
 # Create SQLAlchemy engine
