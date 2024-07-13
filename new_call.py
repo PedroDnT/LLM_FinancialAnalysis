@@ -48,8 +48,17 @@ prompt_template = PromptTemplate(
 def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str, provider: str) -> Tuple[str, int]:
     company_name = get_company_name_by_cd_cvm(cd_cvm)
     if provider == "openai":
-        '''aider add code'''
-        pass
+        llm = OpenAI(api_key=OPENAI_API_KEY, model=model)
+        chain = LLMChain(llm=llm, prompt=prompt_template)
+        with get_openai_callback() as cb:
+            response = chain.run({
+                'company_name': company_name,
+                'cd_cvm': cd_cvm,
+                'financial_data': financial_data,
+                'target_period': target_period
+            })
+            prediction = response['choices'][0]['text']
+            token_usage = cb.total_tokens
 
     elif provider == "openrouter":
         headers = {
