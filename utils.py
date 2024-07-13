@@ -46,7 +46,7 @@ def get_financial_statements_batch(cd_cvm_list: List[str]) -> Tuple[Dict[str, pd
     cash_flows = execute_query(cd_cvm_list, 'cf')
     return income_statements, balance_sheets, cash_flows
 
-db_connection_string = "postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
+db_connection_string = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}?sslmode=require"
 
 # Create a connection pool
 pool = SimpleConnectionPool(1, 20, db_connection_string)
