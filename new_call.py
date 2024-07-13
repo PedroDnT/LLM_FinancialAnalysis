@@ -104,16 +104,14 @@ def parse_prediction(prediction: str) -> Dict[str, Any]:
         elif 'C - Rationale:' in section:
             result['rationale'] = section.split('C - Rationale:', 1)[1].strip()
 
-    lines = prediction.split('\n')
-    for line in lines:
-        if line.startswith('Direction:'):
-            direction = line.split(':', 1)[1].strip().lower()
-            result['direction'] = 'increase' if 'increase' in direction else ('decrease' if 'decrease' in direction else 'unknown')
-        elif line.startswith('Magnitude:'):
-            result['magnitude'] = line.split(':', 1)[1].strip().lower()
-        elif line.startswith('Confidence:'):
+    for section in sections:
+        if 'Direction:' in section:
+            result['direction'] = section.split('Direction:', 1)[1].strip().lower()
+        if 'Magnitude:' in section:
+            result['magnitude'] = section.split('Magnitude:', 1)[1].strip().lower()
+        if 'Confidence:' in section:
             try:
-                result['confidence'] = float(line.split(':', 1)[1].strip())
+                result['confidence'] = float(section.split('Confidence:', 1)[1].strip())
             except ValueError:
                 result['confidence'] = 0.0
     
