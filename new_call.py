@@ -90,7 +90,7 @@ def parse_prediction(prediction: str) -> Dict[str, Any]:
         'trend_analysis': '',
         'ratio_analysis': '',
         'rationale': '',
-        'direction': 0,
+        'direction': '',
         'magnitude': 'unknown',
         'confidence': 0.0
     }
@@ -108,7 +108,7 @@ def parse_prediction(prediction: str) -> Dict[str, Any]:
     for line in lines:
         if line.startswith('Direction:'):
             direction = line.split(':', 1)[1].strip().lower()
-            result['direction'] = 1 if 'increase' in direction else (-1 if 'decrease' in direction else 0)
+            result['direction'] = 'increase' if 'increase' in direction else ('decrease' if 'decrease' in direction else 'unknown')
         elif line.startswith('Magnitude:'):
             result['magnitude'] = line.split(':', 1)[1].strip().lower()
         elif line.startswith('Confidence:'):
@@ -152,7 +152,7 @@ def run_predictions(cd_cvm_list: List[str], model: str, provider: str) -> pd.Dat
                 'TREND ANALYSIS': parsed_prediction['trend_analysis'],
                 'RATIO ANALYSIS': parsed_prediction['ratio_analysis'].replace('\n', ' '),
                 'RATIONALE': parsed_prediction['rationale'],
-                'DIRECTION': parsed_prediction['direction'],
+                'DIRECTION': 1 if parsed_prediction['direction'] == 'increase' else (-1 if parsed_prediction['direction'] == 'decrease' else 0),
                 'MAGNITUDE': parsed_prediction['magnitude'],
                 'CONFIDENCE LEVEL': parsed_prediction['confidence'],
                 'ACTUAL DIRECTION': actual_result,
