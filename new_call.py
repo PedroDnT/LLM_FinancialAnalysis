@@ -3,7 +3,7 @@ import json
 from typing import Dict, Any, List, Tuple
 import langchain
 from langchain.prompts import PromptTemplate
-from langchain.llms import OpenAI
+from langchain.chat_models import ChatOpenAI
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.callbacks import get_openai_callback
@@ -48,7 +48,7 @@ prompt_template = PromptTemplate(
 def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str, provider: str) -> Tuple[str, int]:
     company_name = get_company_name_by_cd_cvm(cd_cvm)
     if provider == "openai":
-        llm = OpenAI(api_key=OPENAI_API_KEY, model=model)
+        llm = ChatOpenAI(api_key=OPENAI_API_KEY, model=model)
         chain = LLMChain(llm=llm, prompt=prompt_template)
         with get_openai_callback() as cb:
             response = chain.run({
