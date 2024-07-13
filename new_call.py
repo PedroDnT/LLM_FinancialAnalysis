@@ -95,21 +95,19 @@ def parse_prediction(prediction: str) -> Dict[str, Any]:
         'confidence': 0.0
     }
     
-    sections = prediction.split('Panel')
+    sections = prediction.split('\n')
     for section in sections:
-        if 'A - Trend Analysis:' in section:
-            result['trend_analysis'] = section.split('A - Trend Analysis:', 1)[1].strip()
-        elif 'B - Ratio Analysis:' in section:
-            result['ratio_analysis'] = section.split('B - Ratio Analysis:', 1)[1].strip()
-        elif 'C - Rationale:' in section:
-            result['rationale'] = section.split('C - Rationale:', 1)[1].strip()
-
-    for section in sections:
-        if 'Direction:' in section:
+        if 'Panel A - Trend Analysis:' in section:
+            result['trend_analysis'] = section.split('Panel A - Trend Analysis:', 1)[1].strip()
+        elif 'Panel B - Ratio Analysis:' in section:
+            result['ratio_analysis'] = section.split('Panel B - Ratio Analysis:', 1)[1].strip()
+        elif 'Panel C - Rationale:' in section:
+            result['rationale'] = section.split('Panel C - Rationale:', 1)[1].strip()
+        elif 'Direction:' in section:
             result['direction'] = section.split('Direction:', 1)[1].strip().lower()
-        if 'Magnitude:' in section:
+        elif 'Magnitude:' in section:
             result['magnitude'] = section.split('Magnitude:', 1)[1].strip().lower()
-        if 'Confidence:' in section:
+        elif 'Confidence:' in section:
             try:
                 result['confidence'] = float(section.split('Confidence:', 1)[1].strip())
             except ValueError:
