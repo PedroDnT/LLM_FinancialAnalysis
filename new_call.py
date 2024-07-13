@@ -95,7 +95,7 @@ def parse_prediction(prediction: str) -> Dict[str, Any]:
         'confidence': 0.0
     }
     
-    sections = prediction.split('\n')
+    sections = prediction.split('\n\n')
     for section in sections:
         if 'Panel A - Trend Analysis:' in section:
             result['trend_analysis'] = section.split('Panel A - Trend Analysis:', 1)[1].strip()
