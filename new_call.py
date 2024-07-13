@@ -6,7 +6,7 @@ from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.callbacks import get_openai_callback
-from langchain.output_parsers import PydanticOutputParser, OutputParserException
+from langchain.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
 import pandas as pd
 import requests
@@ -72,7 +72,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             })
             try:
                 prediction = output_parser.parse(response)
-            except OutputParserException as e:
+            except Exception as e:
                 print(f"Output parsing failed: {e}")
                 prediction = None
             token_usage = cb.total_tokens
