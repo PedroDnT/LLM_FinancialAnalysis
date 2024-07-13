@@ -4,9 +4,10 @@ from typing import Dict, Any, List, Tuple
 import langchain
 from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
-from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.callbacks import get_openai_callback
+from langchain.output_parsers import PydanticOutputParser
+from pydantic import BaseModel, Field
 import pandas as pd
 import requests
 from utils import *
@@ -16,6 +17,16 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+class PredictionOutput(BaseModel):
+    trend_analysis: str = Field(alias="Panel A - Trend Analysis")
+    ratio_analysis: str = Field(alias="Panel B - Ratio Analysis")
+    rationale: str = Field(alias="Panel C - Rationale")
+    direction: str = Field(alias="Direction")
+    magnitude: str = Field(alias="Magnitude")
+    confidence: float = Field(alias="Confidence")
+
+output_parser = PydanticOutputParser(pydantic_object=PredictionOutput)
 
 prompt_template = PromptTemplate(
     input_variables=['company_name', 'cd_cvm', 'financial_data', 'target_period'],
@@ -43,7 +54,9 @@ prompt_template = PromptTemplate(
     CVM Code: {cd_cvm}
     Financial data: {financial_data}
     Target period: {target_period}
-    """)
+    """,
+    output_parser=output_parser
+)
 
 def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str, provider: str) -> Tuple[str, int]:
     company_name = get_company_name_by_cd_cvm(cd_cvm)
@@ -57,7 +70,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
                 'financial_data': financial_data,
                 'target_period': target_period
             })
-            prediction = response
+            prediction = output_parser.parse(response)
             token_usage = cb.total_tokens
 
     elif provider == "openrouter":
@@ -78,7 +91,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
         if response.status_code != 200:
             raise ValueError(f"Request to OpenRouter failed with status code {response.status_code}: {response.text}")
         response_json = response.json()
-        prediction = response_json['choices'][0]['message']['content']  # Adjust according to actual API response structure
+        prediction = output_parser.parse(response_json['choices'][0]['message']['content'])  # Adjust according to actual API response structure
         token_usage = response_json["usage"]["total_tokens"]
     else:
         raise ValueError(f"Unsupported provider: {provider}")
@@ -86,43 +99,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
     return prediction, token_usage
 
 def parse_prediction(prediction: str) -> Dict[str, Any]:
-    result = {
-        'trend_analysis': '',
-        'ratio_analysis': '',
-        'rationale': '',
-        'direction': '',
-        'magnitude': 'unknown',
-        'confidence': 0.0
-    }
-    
-    lines = prediction.split('\n')
-    current_section = None
-    for line in lines:
-        if 'Panel A - Trend Analysis:' in line:
-            current_section = 'trend_analysis'
-            result[current_section] = line.split('Panel A - Trend Analysis:', 1)[1].strip()
-        elif 'Panel B - Ratio Analysis:' in line:
-            current_section = 'ratio_analysis'
-            result[current_section] = line.split('Panel B - Ratio Analysis:', 1)[1].strip()
-        elif 'Panel C - Rationale:' in line:
-            current_section = 'rationale'
-            result[current_section] = line.split('Panel C - Rationale:', 1)[1].strip()
-        elif 'Direction:' in line:
-            result['direction'] = line.split('Direction:', 1)[1].strip().capitalize()
-            current_section = None
-        elif 'Magnitude:' in line:
-            result['magnitude'] = line.split('Magnitude:', 1)[1].strip().capitalize()
-            current_section = None
-        elif 'Confidence:' in line:
-            try:
-                result['confidence'] = float(line.split('Confidence:', 1)[1].strip())
-            except ValueError:
-                result['confidence'] = 0.0
-            current_section = None
-        elif current_section:
-            result[current_section] += ' ' + line.strip()
-    
-    return result
+    return prediction.dict()
 
 def run_predictions(cd_cvm_list: List[str], model: str, provider: str) -> pd.DataFrame:
     results = []
