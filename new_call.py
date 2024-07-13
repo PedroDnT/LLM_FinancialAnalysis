@@ -70,7 +70,11 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
                 'financial_data': financial_data,
                 'target_period': target_period
             })
-            prediction = output_parser.parse(response)
+            try:
+                prediction = output_parser.parse(response)
+            except OutputParserException as e:
+                print(f"Output parsing failed: {e}")
+                prediction = None
             token_usage = cb.total_tokens
 
     elif provider == "openrouter":
@@ -91,12 +95,16 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
         if response.status_code != 200:
             raise ValueError(f"Request to OpenRouter failed with status code {response.status_code}: {response.text}")
         response_json = response.json()
-        prediction = output_parser.parse(response_json['choices'][0]['message']['content'])  # Adjust according to actual API response structure
+        try:
+            prediction = output_parser.parse(response_json['choices'][0]['message']['content'])  # Adjust according to actual API response structure
+        except OutputParserException as e:
+            print(f"Output parsing failed: {e}")
+            prediction = None
         token_usage = response_json["usage"]["total_tokens"]
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    return prediction, token_usage
+    return prediction.dict() if prediction else {}, token_usage
 
 def parse_prediction(prediction: str) -> Dict[str, Any]:
     return prediction.dict()
