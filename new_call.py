@@ -57,7 +57,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
                 'financial_data': financial_data,
                 'target_period': target_period
             })
-            prediction = response['choices'][0]['text']
+            prediction = response
             token_usage = cb.total_tokens
 
     elif provider == "openrouter":
