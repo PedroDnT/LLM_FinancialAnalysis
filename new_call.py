@@ -105,7 +105,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    return prediction.dict() if prediction else {}, token_usage
+    return prediction if isinstance(prediction, dict) else prediction.dict(), token_usage
 
 def manual_parse_response(response: str) -> Dict[str, Any]:
     sections = {
