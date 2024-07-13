@@ -140,6 +140,7 @@ def run_predictions(cd_cvm_list: List[str], model: str, provider: str) -> pd.Dat
             financial_data = json.dumps(relevant_data)
             company_name = get_company_name_by_cd_cvm(cd_cvm)
             prediction, token_usage = predict_earnings(cd_cvm, financial_data, target_period, model, provider)
+            print(f"Unparsed response for {cd_cvm} during {target_period}:\n{prediction}\n")
             parsed_prediction = parse_prediction(prediction)
             
             results.append({
