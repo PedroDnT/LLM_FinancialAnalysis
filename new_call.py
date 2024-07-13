@@ -95,23 +95,29 @@ def parse_prediction(prediction: str) -> Dict[str, Any]:
         'confidence': 0.0
     }
     
-    sections = prediction.split('\n\n')
-    for section in sections:
-        if 'Panel A - Trend Analysis:' in section:
-            result['trend_analysis'] = section.split('Panel A - Trend Analysis:', 1)[1].strip()
-        elif 'Panel B - Ratio Analysis:' in section:
-            result['ratio_analysis'] = section.split('Panel B - Ratio Analysis:', 1)[1].strip()
-        elif 'Panel C - Rationale:' in section:
-            result['rationale'] = section.split('Panel C - Rationale:', 1)[1].strip()
-        elif 'Direction:' in section:
-            result['direction'] = section.split('Direction:', 1)[1].strip().capitalize()
-        elif 'Magnitude:' in section:
-            result['magnitude'] = section.split('Magnitude:', 1)[1].strip().capitalize()
-        elif 'Confidence:' in section:
+    lines = prediction.split('\n')
+    current_section = None
+    for line in lines:
+        if 'Panel A - Trend Analysis:' in line:
+            current_section = 'trend_analysis'
+            result[current_section] = line.split('Panel A - Trend Analysis:', 1)[1].strip()
+        elif 'Panel B - Ratio Analysis:' in line:
+            current_section = 'ratio_analysis'
+            result[current_section] = line.split('Panel B - Ratio Analysis:', 1)[1].strip()
+        elif 'Panel C - Rationale:' in line:
+            current_section = 'rationale'
+            result[current_section] = line.split('Panel C - Rationale:', 1)[1].strip()
+        elif 'Direction:' in line:
+            result['direction'] = line.split('Direction:', 1)[1].strip().capitalize()
+        elif 'Magnitude:' in line:
+            result['magnitude'] = line.split('Magnitude:', 1)[1].strip().capitalize()
+        elif 'Confidence:' in line:
             try:
-                result['confidence'] = float(section.split('Confidence:', 1)[1].strip())
+                result['confidence'] = float(line.split('Confidence:', 1)[1].strip())
             except ValueError:
                 result['confidence'] = 0.0
+        elif current_section:
+            result[current_section] += ' ' + line.strip()
     
     return result
 
