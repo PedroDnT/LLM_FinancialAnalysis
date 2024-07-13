@@ -109,13 +109,16 @@ def parse_prediction(prediction: str) -> Dict[str, Any]:
             result[current_section] = line.split('Panel C - Rationale:', 1)[1].strip()
         elif 'Direction:' in line:
             result['direction'] = line.split('Direction:', 1)[1].strip().capitalize()
+            current_section = None
         elif 'Magnitude:' in line:
             result['magnitude'] = line.split('Magnitude:', 1)[1].strip().capitalize()
+            current_section = None
         elif 'Confidence:' in line:
             try:
                 result['confidence'] = float(line.split('Confidence:', 1)[1].strip())
             except ValueError:
                 result['confidence'] = 0.0
+            current_section = None
         elif current_section:
             result[current_section] += ' ' + line.strip()
     
