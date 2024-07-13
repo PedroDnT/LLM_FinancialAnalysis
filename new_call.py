@@ -104,9 +104,9 @@ def parse_prediction(prediction: str) -> Dict[str, Any]:
         elif 'Panel C - Rationale:' in section:
             result['rationale'] = section.split('Panel C - Rationale:', 1)[1].strip()
         elif 'Direction:' in section:
-            result['direction'] = section.split('Direction:', 1)[1].strip().lower()
+            result['direction'] = section.split('Direction:', 1)[1].strip().capitalize()
         elif 'Magnitude:' in section:
-            result['magnitude'] = section.split('Magnitude:', 1)[1].strip().lower()
+            result['magnitude'] = section.split('Magnitude:', 1)[1].strip().capitalize()
         elif 'Confidence:' in section:
             try:
                 result['confidence'] = float(section.split('Confidence:', 1)[1].strip())
