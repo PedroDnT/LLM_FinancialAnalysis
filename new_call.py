@@ -106,8 +106,8 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
 
     return prediction.dict() if prediction else {}, token_usage
 
-def parse_prediction(prediction: str) -> Dict[str, Any]:
-    return prediction.dict()
+def parse_prediction(prediction: Dict[str, Any]) -> Dict[str, Any]:
+    return prediction
 
 def run_predictions(cd_cvm_list: List[str], model: str, provider: str) -> pd.DataFrame:
     results = []
