@@ -10,7 +10,6 @@ from langchain.callbacks import get_openai_callback
 import pandas as pd
 import requests
 from utils import *
-from update_predictions import *
 import random
 load_dotenv()
 
@@ -44,12 +43,12 @@ prompt_template = PromptTemplate(
     CVM Code: {cd_cvm}
     Financial data: {financial_data}
     Target period: {target_period}
-    """
-)
+    """)
 
 def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str, provider: str) -> Tuple[str, int]:
     company_name = get_company_name_by_cd_cvm(cd_cvm)
     if provider == "openai":
+        '''aider add code'''
         pass
 
     elif provider == "openrouter":
@@ -181,8 +180,6 @@ def evaluate_predictions(df):
     })
     
     return results_df
-
-
 
 if __name__ == "__main__":
     import sys
