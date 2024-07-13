@@ -74,7 +74,8 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
                 prediction = output_parser.parse(response)
             except Exception as e:
                 print(f"Output parsing failed: {e}")
-                prediction = None
+                # Manually parse the response if it's not in JSON format
+                prediction = manual_parse_response(response)
             token_usage = cb.total_tokens
 
     elif provider == "openrouter":
@@ -105,6 +106,42 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
         raise ValueError(f"Unsupported provider: {provider}")
 
     return prediction.dict() if prediction else {}, token_usage
+
+def manual_parse_response(response: str) -> Dict[str, Any]:
+    sections = {
+        "trend_analysis": "",
+        "ratio_analysis": "",
+        "rationale": "",
+        "direction": "",
+        "magnitude": "",
+        "confidence": 0.0
+    }
+    current_section = None
+
+    for line in response.split("\n"):
+        line = line.strip()
+        if line.startswith("Panel A - Trend Analysis:"):
+            current_section = "trend_analysis"
+            sections[current_section] = line[len("Panel A - Trend Analysis:"):].strip()
+        elif line.startswith("Panel B - Ratio Analysis:"):
+            current_section = "ratio_analysis"
+            sections[current_section] = line[len("Panel B - Ratio Analysis:"):].strip()
+        elif line.startswith("Panel C - Rationale:"):
+            current_section = "rationale"
+            sections[current_section] = line[len("Panel C - Rationale:"):].strip()
+        elif line.startswith("Direction:"):
+            current_section = "direction"
+            sections[current_section] = line[len("Direction:"):].strip()
+        elif line.startswith("Magnitude:"):
+            current_section = "magnitude"
+            sections[current_section] = line[len("Magnitude:"):].strip()
+        elif line.startswith("Confidence:"):
+            current_section = "confidence"
+            sections[current_section] = float(line[len("Confidence:"):].strip())
+        elif current_section:
+            sections[current_section] += " " + line
+
+    return sections
 
 def parse_prediction(prediction: Dict[str, Any]) -> Dict[str, Any]:
     return prediction
