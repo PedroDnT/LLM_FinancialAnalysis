@@ -3,3 +3,7 @@
 /data
 /.ipynb_checkpoints/
 .aider*
+.env
+cvm_db.code-workspace
+tests.ipynb
+call.py
