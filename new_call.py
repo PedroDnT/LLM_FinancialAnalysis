@@ -3,7 +3,7 @@ import json
 from typing import Dict, Any, List, Tuple
 import langchain
 from langchain.prompts import PromptTemplate
-from langchain_openai.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain_core.runnables.base import RunnableSequence
 from langchain.callbacks import get_openai_callback
 from langchain.output_parsers import PydanticOutputParser
@@ -82,17 +82,10 @@ prompt_template = PromptTemplate(
 def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str, provider: str) -> Tuple[str, int]:
     company_name = get_company_name_by_cd_cvm(cd_cvm)
     if provider == "openai":
-        llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model=model)
+        llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name=model)
         chain = RunnableSequence([prompt_template, llm])
         with get_openai_callback() as cb:
-            response = chain.invoke({
-                'company_name': company_name,
-                'cd_cvm': cd_cvm,
-                'financial_data': financial_data,
-                'target_period': target_period,
-                'model': model,
-                'provider': provider
-            })
+            response = chain.invoke({"financial_data": financial_data, "target_period": target_period})
             try:
                 response_json = json.loads(response)
                 prediction = output_parser.parse(response_json)
