@@ -13,10 +13,17 @@ import pandas as pd
 import requests
 from utils import *
 import random
+from dotenv import load_dotenv
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY environment variable is not set")
+
+if not OPENROUTER_API_KEY:
+    raise ValueError("OPENROUTER_API_KEY environment variable is not set")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 class PredictionOutput(BaseModel):
@@ -82,7 +89,7 @@ prompt_template = PromptTemplate(
 def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str, provider: str) -> Tuple[str, int]:
     company_name = get_company_name_by_cd_cvm(cd_cvm)
     if provider == "openai":
-        llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name=model)
+        llm = ChatOpenAI(api_key=OPENAI_API_KEY, model=model)
         chain = RunnableSequence(first=prompt_template, last=llm)
         with get_openai_callback() as cb:
             response = chain.invoke({
