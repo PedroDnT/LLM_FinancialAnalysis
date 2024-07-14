@@ -22,8 +22,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is not set")
 
-if not OPENROUTER_API_KEY:
-    raise ValueError("OPENROUTER_API_KEY environment variable is not set")
+
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 class PredictionOutput(BaseModel):
