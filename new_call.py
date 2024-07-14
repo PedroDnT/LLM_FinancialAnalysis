@@ -104,13 +104,16 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             print(f"Response content type: {type(response_content)}")
             if not response_content:
                 raise ValueError("Response content is empty, cannot parse JSON.")
-            response_json = json.loads(response_content)
+            response_content = response_content.strip("```")
             try:
+                response_content = response_content.strip("```")
+                response_json = json.loads(response_content)
                 prediction = output_parser.parse(response_json)
             except (OutputParserException, json.JSONDecodeError) as e:
                 print(f"Output parsing failed: {e}")
+                print(f"Response content: {response_content}")
                 prediction = manual_parse_response(response_content)
-            token_usage = cb.total_tokens
+            token_usage = cb.total_tokens if cb else 0
 
     elif provider == "openrouter":
         headers = {
