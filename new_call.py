@@ -85,7 +85,14 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
         llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name=model)
         chain = RunnableSequence(first=prompt_template, last=llm)
         with get_openai_callback() as cb:
-            response = chain.invoke({"financial_data": financial_data, "target_period": target_period})
+            response = chain.invoke({
+                "company_name": company_name,
+                "cd_cvm": cd_cvm,
+                "financial_data": financial_data,
+                "target_period": target_period,
+                "model": model,
+                "provider": provider
+            })
             try:
                 response_json = json.loads(response)
                 prediction = output_parser.parse(response_json)
