@@ -3,8 +3,8 @@ import json
 from typing import Dict, Any, List, Tuple
 import langchain
 from langchain.prompts import PromptTemplate
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import LLMChain
+from langchain_openai import ChatOpenAI
+from langchain_core import RunnableSequence
 from langchain.callbacks import get_openai_callback
 from langchain.output_parsers import PydanticOutputParser
 from langchain.schema import OutputParserException
@@ -83,9 +83,9 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
     company_name = get_company_name_by_cd_cvm(cd_cvm)
     if provider == "openai":
         llm = ChatOpenAI(api_key=OPENAI_API_KEY, model=model)
-        chain = LLMChain(llm=llm, prompt=prompt_template)
+        chain = RunnableSequence([prompt_template, llm])
         with get_openai_callback() as cb:
-            response = chain.run({
+            response = chain.invoke({
                 'company_name': company_name,
                 'cd_cvm': cd_cvm,
                 'financial_data': financial_data,
