@@ -72,7 +72,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             })
             try:
                 prediction = output_parser.parse(response)
-            except Exception as e:
+            except OutputParserException as e:
                 print(f"Output parsing failed: {e}")
                 # Manually parse the response if it's not in JSON format
                 prediction = manual_parse_response(response)
@@ -138,7 +138,7 @@ def manual_parse_response(response: str) -> Dict[str, Any]:
         elif line.startswith("Confidence:"):
             current_section = "confidence"
             sections[current_section] = float(line[len("Confidence:"):].strip())
-        elif current_section and current_section != "confidence":
+        elif current_section and current_section not in ["confidence"]:
             sections[current_section] += " " + line
 
     return sections
