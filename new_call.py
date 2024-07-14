@@ -3,7 +3,7 @@ import json
 from typing import Dict, Any, List, Tuple
 import langchain
 from langchain.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
+from langchain_openai.chat_models import ChatOpenAI
 from langchain_core.runnables.base import RunnableSequence
 from langchain.callbacks import get_openai_callback
 from langchain.output_parsers import PydanticOutputParser
