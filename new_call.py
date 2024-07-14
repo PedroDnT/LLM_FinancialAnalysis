@@ -99,7 +99,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
         response_json = response.json()
         try:
             prediction = output_parser.parse(response_json['choices'][0]['message']['content'])  # Adjust according to actual API response structure
-        except OutputParserException as e:
+        except (OutputParserException, json.JSONDecodeError) as e:
             print(f"Output parsing failed: {e}")
             prediction = None
         token_usage = response_json["usage"]["total_tokens"]
