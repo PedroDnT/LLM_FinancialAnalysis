@@ -36,7 +36,7 @@ class PredictionOutput(BaseModel):
 output_parser = PydanticOutputParser(pydantic_object=PredictionOutput)
 
 prompt_template = PromptTemplate(
-    input_variables=['company_name', 'cd_cvm', 'financial_data', 'target_period'],
+    input_variables=['company_name', 'cd_cvm', 'financial_data', 'target_period', 'model', 'provider'],
     template="""
     Act as a financial expert analyzing a Brazilian company. Your task is to analyze the provided financial statements for {company_name} (CVM Code: {cd_cvm}) and predict future earnings for the specified target period. 
     You MUST provide analysis and prediction for the target period by performing the following actions:
@@ -89,7 +89,9 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
                 'company_name': company_name,
                 'cd_cvm': cd_cvm,
                 'financial_data': financial_data,
-                'target_period': target_period
+                'target_period': target_period,
+                'model': model,
+                'provider': provider
             })
             response_json = json.loads(response)
             prediction = output_parser.parse(response_json)
