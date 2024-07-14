@@ -138,8 +138,11 @@ def manual_parse_response(response: str) -> Dict[str, Any]:
         elif line.startswith("Confidence:"):
             current_section = "confidence"
             sections[current_section] = float(line[len("Confidence:"):].strip())
-        elif current_section and current_section not in ["confidence"]:
-            sections[current_section] += " " + line
+        elif current_section:
+            if current_section == "confidence":
+                sections[current_section] = float(line)
+            else:
+                sections[current_section] += " " + line
 
     return sections
 
