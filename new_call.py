@@ -93,12 +93,13 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
                 "model": model,
                 "provider": provider
             })
+            response_content = response.content if hasattr(response, 'content') else response
             try:
-                response_json = json.loads(response)
+                response_json = json.loads(response_content)
                 prediction = output_parser.parse(response_json)
             except (OutputParserException, json.JSONDecodeError) as e:
                 print(f"Output parsing failed: {e}")
-                prediction = manual_parse_response(response)
+                prediction = manual_parse_response(response_content)
             token_usage = cb.total_tokens
 
     elif provider == "openrouter":
