@@ -102,6 +102,8 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             response_content = response.content if hasattr(response, 'content') else response
             print(f"Response content: {response_content}")
             print(f"Response content type: {type(response_content)}")
+            if not response_content:
+                raise ValueError("Response content is empty, cannot parse JSON.")
             response_json = json.loads(response_content)
             try:
                 prediction = output_parser.parse(response_json)
