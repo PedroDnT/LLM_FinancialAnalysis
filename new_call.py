@@ -8,6 +8,7 @@ from langchain.chains import LLMChain
 from langchain.callbacks import get_openai_callback
 from langchain.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
+from langchain.output_parsers import OutputParserException
 import pandas as pd
 import requests
 from utils import *
@@ -72,7 +73,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             })
             try:
                 prediction = output_parser.parse(response)
-            except OutputParserException as e:
+            except (OutputParserException, json.JSONDecodeError) as e:
                 print(f"Output parsing failed: {e}")
                 # Manually parse the response if it's not in JSON format
                 prediction = manual_parse_response(response)
