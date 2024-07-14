@@ -20,12 +20,18 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 class PredictionOutput(BaseModel):
-    trend_analysis: str = Field(alias="Panel A - Trend Analysis")
-    ratio_analysis: str = Field(alias="Panel B - Ratio Analysis")
-    rationale: str = Field(alias="Panel C - Rationale")
-    direction: str = Field(alias="Direction")
-    magnitude: str = Field(alias="Magnitude")
-    confidence: float = Field(alias="Confidence")
+    company: str = Field(alias="Company")
+    model: str = Field(alias="Model")
+    trend_analysis: str = Field(alias="TREND ANALYSIS")
+    ratio_analysis: str = Field(alias="RATIO ANALYSIS")
+    rationale: str = Field(alias="RATIONALE")
+    direction: str = Field(alias="DIRECTION")
+    magnitude: str = Field(alias="MAGNITUDE")
+    confidence: float = Field(alias="CONFIDENCE LEVEL")
+    actual_direction: int = Field(alias="ACTUAL DIRECTION")
+    cd_cvm: str = Field(alias="CD_CVM")
+    target_period: str = Field(alias="TARGET PERIOD")
+    token_usage: int = Field(alias="TOKEN USAGE")
 
 output_parser = PydanticOutputParser(pydantic_object=PredictionOutput)
 
@@ -40,7 +46,21 @@ prompt_template = PromptTemplate(
     3. Rationale (Panel C): Summarize your analyses on trend and ratio to make a prediction specific to {company_name}. Explain your prediction reasoning concisely.
     4. Prediction: Given your previous analyses, work out a unified analysis and predict the earnings direction (increase/decrease), magnitude (large/moderate/small), and confidence (0.0-1.0) for {company_name}.
 
-    Be concise in your explanation and address the company by "the firm" and not by {company_name}.
+    Provide your response in the following JSON format:
+    {{
+        "Company": "{company_name}",
+        "Model": "{provider}/{model}",
+        "TREND ANALYSIS": "[Summary of trend analysis]",
+        "RATIO ANALYSIS": "[Summary of ratio analysis]",
+        "RATIONALE": "[Summary of rationale for prediction]",
+        "DIRECTION": "[increase/decrease]",
+        "MAGNITUDE": "[large/moderate/small]",
+        "CONFIDENCE LEVEL": [0.00 to 1.00],
+        "ACTUAL DIRECTION": [actual direction],
+        "CD_CVM": "{cd_cvm}",
+        "TARGET PERIOD": "{target_period}",
+        "TOKEN USAGE": [token usage]
+    }}
 
     Provide your response in this format for the target period:
     Panel A - Trend Analysis: [Summary of trend analysis]
@@ -71,12 +91,8 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
                 'financial_data': financial_data,
                 'target_period': target_period
             })
-            try:
-                prediction = output_parser.parse(response)
-            except OutputParserException as e:
-                print(f"Output parsing failed: {e}")
-                # Manually parse the response if it's not in JSON format
-                prediction = manual_parse_response(response)
+            response_json = json.loads(response)
+            prediction = output_parser.parse(response_json)
             token_usage = cb.total_tokens
 
     elif provider == "openrouter":
@@ -98,54 +114,24 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             raise ValueError(f"Request to OpenRouter failed with status code {response.status_code}: {response.text}")
         response_json = response.json()
         try:
-            prediction = output_parser.parse(response_json['choices'][0]['message']['content'])
-        except OutputParserException as e:
+            response_content = response_json['choices'][0]['message']['content']
+            response_json = json.loads(response_content)
+            prediction = output_parser.parse(response_json)
+        except (OutputParserException, json.JSONDecodeError) as e:
             print(f"Output parsing failed: {e}")
-            prediction = None
+            prediction = manual_parse_response(response_content)
         token_usage = response_json["usage"]["total_tokens"]
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    return prediction if isinstance(prediction, dict) else prediction.dict(), token_usage
+    return prediction.dict(), token_usage
 
 def manual_parse_response(response: str) -> Dict[str, Any]:
-    sections = {
-        "trend_analysis": "",
-        "ratio_analysis": "",
-        "rationale": "",
-        "direction": "",
-        "magnitude": "",
-        "confidence": 0.0
-    }
-    current_section = None
-
-    for line in response.split("\n"):
-        line = line.strip()
-        if line.startswith("Panel A - Trend Analysis:"):
-            current_section = "trend_analysis"
-            sections[current_section] = line[len("Panel A - Trend Analysis:"):].strip()
-        elif line.startswith("Panel B - Ratio Analysis:"):
-            current_section = "ratio_analysis"
-            sections[current_section] = line[len("Panel B - Ratio Analysis:"):].strip()
-        elif line.startswith("Panel C - Rationale:"):
-            current_section = "rationale"
-            sections[current_section] = line[len("Panel C - Rationale:"):].strip()
-        elif line.startswith("Direction:"):
-            current_section = "direction"
-            sections[current_section] = line[len("Direction:"):].strip()
-        elif line.startswith("Magnitude:"):
-            current_section = "magnitude"
-            sections[current_section] = line[len("Magnitude:"):].strip()
-        elif line.startswith("Confidence:"):
-            current_section = "confidence"
-            sections[current_section] = float(line[len("Confidence:"):].strip())
-        elif current_section:
-            if current_section == "confidence":
-                sections[current_section] = float(line)
-            else:
-                sections[current_section] += " " + line
-
-    return sections
+    try:
+        response_json = json.loads(response)
+    except json.JSONDecodeError:
+        raise ValueError("Response is not in valid JSON format and cannot be parsed manually.")
+    return response_json
 
 def parse_prediction(prediction: Dict[str, Any]) -> Dict[str, Any]:
     return prediction
@@ -175,24 +161,14 @@ def run_predictions(cd_cvm_list: List[str], model: str, provider: str) -> pd.Dat
             financial_data = json.dumps(relevant_data)
             company_name = get_company_name_by_cd_cvm(cd_cvm)
             prediction, token_usage = predict_earnings(cd_cvm, financial_data, target_period, model, provider)
-            print(f"Unparsed response for {cd_cvm} during {target_period}:\n{prediction}\n")
-            parsed_prediction = parse_prediction(prediction)
-            print(f"Parsed prediction for {cd_cvm} during {target_period}:\n{parsed_prediction}\n")
-            
-            results.append({
-                'Company': company_name,
-                'Model': f"{provider}/{model}",
-                'TREND ANALYSIS': parsed_prediction['trend_analysis'],
-                'RATIO ANALYSIS': parsed_prediction['ratio_analysis'].replace('\n', ' '),
-                'RATIONALE': parsed_prediction['rationale'],
-                'DIRECTION': 1 if parsed_prediction['direction'] == 'increase' else (-1 if parsed_prediction['direction'] == 'decrease' else 0),
-                'MAGNITUDE': parsed_prediction['magnitude'],
-                'CONFIDENCE LEVEL': parsed_prediction['confidence'],
-                'ACTUAL DIRECTION': actual_result,
-                'CD_CVM': cd_cvm,
-                'TARGET PERIOD': target_period,
-                'TOKEN USAGE': token_usage
-            })
+            prediction['Company'] = company_name
+            prediction['Model'] = f"{provider}/{model}"
+            prediction['ACTUAL DIRECTION'] = actual_result
+            prediction['CD_CVM'] = cd_cvm
+            prediction['TARGET PERIOD'] = target_period
+            prediction['TOKEN USAGE'] = token_usage
+
+            results.append(prediction)
 
     return pd.DataFrame(results)
 
