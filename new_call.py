@@ -83,7 +83,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
     company_name = get_company_name_by_cd_cvm(cd_cvm)
     if provider == "openai":
         llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model_name=model)
-        chain = RunnableSequence([prompt_template, llm])
+        chain = RunnableSequence(first=prompt_template, last=llm)
         with get_openai_callback() as cb:
             response = chain.invoke({"financial_data": financial_data, "target_period": target_period})
             try:
