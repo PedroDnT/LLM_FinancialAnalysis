@@ -8,7 +8,6 @@ from langchain.chains import LLMChain
 from langchain.callbacks import get_openai_callback
 from langchain.output_parsers import PydanticOutputParser, OutputParserException
 from pydantic import BaseModel, Field
-from langchain.output_parsers import OutputParserException
 import pandas as pd
 import requests
 from utils import *
@@ -73,7 +72,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             })
             try:
                 prediction = output_parser.parse(response)
-            except (OutputParserException, json.JSONDecodeError) as e:
+            except OutputParserException as e:
                 print(f"Output parsing failed: {e}")
                 # Manually parse the response if it's not in JSON format
                 prediction = manual_parse_response(response)
@@ -98,8 +97,8 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             raise ValueError(f"Request to OpenRouter failed with status code {response.status_code}: {response.text}")
         response_json = response.json()
         try:
-            prediction = output_parser.parse(response_json['choices'][0]['message']['content'])  # Adjust according to actual API response structure
-        except (OutputParserException, json.JSONDecodeError) as e:
+            prediction = output_parser.parse(response_json['choices'][0]['message']['content'])
+        except OutputParserException as e:
             print(f"Output parsing failed: {e}")
             prediction = None
         token_usage = response_json["usage"]["total_tokens"]
