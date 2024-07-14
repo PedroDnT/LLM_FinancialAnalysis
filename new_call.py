@@ -104,9 +104,9 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             print(f"Response content type: {type(response_content)}")
             if not response_content:
                 raise ValueError("Response content is empty, cannot parse JSON.")
-            response_content = response_content.strip("```")
+            response_content = response_content.strip("```").strip()
             try:
-                response_content = response_content.strip("```")
+                response_content = response_content.strip("```").strip()
                 response_json = json.loads(response_content)
                 prediction = output_parser.parse(response_json)
             except (OutputParserException, json.JSONDecodeError) as e:
@@ -135,7 +135,12 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
         response_json = response.json()
         try:
             response_content = response_json['choices'][0]['message']['content']
-            response_json = json.loads(response_content)
+            try:
+                response_json = json.loads(response_content)
+            except json.JSONDecodeError as e:
+                print(f"JSON decoding failed: {e}")
+                print(f"Response content: {response_content}")
+                raise
             prediction = output_parser.parse(response_json)
         except (OutputParserException, json.JSONDecodeError, KeyError) as e:
             print(f"Output parsing failed: {e}")
