@@ -101,7 +101,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             })
             response_content = response.content if hasattr(response, 'content') else response
             print(f"Response content: {response_content}")
-                response_json = json.loads(response_content)
+            response_json = json.loads(response_content)
                 prediction = output_parser.parse(response_json)
             except (OutputParserException, json.JSONDecodeError) as e:
                 print(f"Output parsing failed: {e}")
