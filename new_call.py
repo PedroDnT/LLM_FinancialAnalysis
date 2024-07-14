@@ -6,7 +6,8 @@ from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain.callbacks import get_openai_callback
-from langchain.output_parsers import PydanticOutputParser, OutputParserException
+from langchain.output_parsers import PydanticOutputParser
+from langchain.schema import OutputParserException
 from pydantic import BaseModel, Field
 import pandas as pd
 import requests
