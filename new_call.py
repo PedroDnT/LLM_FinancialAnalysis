@@ -93,8 +93,12 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
                 'model': model,
                 'provider': provider
             })
-            response_json = json.loads(response)
-            prediction = output_parser.parse(response_json)
+            try:
+                response_json = json.loads(response)
+                prediction = output_parser.parse(response_json)
+            except (OutputParserException, json.JSONDecodeError) as e:
+                print(f"Output parsing failed: {e}")
+                prediction = manual_parse_response(response)
             token_usage = cb.total_tokens
 
     elif provider == "openrouter":
@@ -119,9 +123,10 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             response_content = response_json['choices'][0]['message']['content']
             response_json = json.loads(response_content)
             prediction = output_parser.parse(response_json)
-        except (OutputParserException, json.JSONDecodeError) as e:
+        except (OutputParserException, json.JSONDecodeError, KeyError) as e:
             print(f"Output parsing failed: {e}")
             prediction = manual_parse_response(response_content)
+            token_usage = response_json.get("usage", {}).get("total_tokens", 0)
         token_usage = response_json["usage"]["total_tokens"]
     else:
         raise ValueError(f"Unsupported provider: {provider}")
