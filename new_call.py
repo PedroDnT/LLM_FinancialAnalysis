@@ -137,6 +137,7 @@ def manual_parse_response(response: str) -> Dict[str, Any]:
     try:
         response_json = json.loads(response)
     except json.JSONDecodeError:
+        print(f"Invalid JSON response: {response}")
         raise ValueError("Response is not in valid JSON format and cannot be parsed manually.")
     return response_json
 
