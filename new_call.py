@@ -100,7 +100,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
                 "provider": provider
             })
             response_content = response.content if hasattr(response, 'content') else response
-            try:
+            print(f"Response content: {response_content}")
                 response_json = json.loads(response_content)
                 prediction = output_parser.parse(response_json)
             except (OutputParserException, json.JSONDecodeError) as e:
@@ -141,6 +141,7 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
     return prediction.dict(), token_usage
 
 def manual_parse_response(response: str) -> Dict[str, Any]:
+    print(f"Response content before manual parsing: {response}")
     try:
         response_json = json.loads(response)
     except json.JSONDecodeError:
