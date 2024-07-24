@@ -10,8 +10,13 @@ import numpy as np
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.callbacks import get_openai_callback
 from utils import *
+from F_fetcher import execute_query
 
-def create_prompt_template() -> ChatPromptTemplate:
+def get_financial_data(CD_CVM_list: List[int], table_name: str) -> str:
+    """Fetches financial data for the given CD_CVM list from the specified table."""
+    df = execute_query(CD_CVM_list, table_name)
+    financial_data = df.to_string(index=False)
+    return financial_data
     """Creates a prompt template for the financial prediction task."""
     template = """
     As a financial expert, your task analyze the provided financial statements and predict future earnings for the specified target period. You MUST provide analysis and prediction for the target period by performing the following actions:
