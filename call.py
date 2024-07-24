@@ -12,10 +12,12 @@ from langchain_community.callbacks import get_openai_callback
 from utils import *
 from unidecode import unidecode
 import re
+from functools import lru_cache
 
-def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
-    """Fetches and returns financial data for the given CD_CVM list without including CD_CVM in the return JSON keys as a dictionary."""
-    income, balance, _ = get_financial_statements_batch(CD_CVM_list)
+@lru_cache(maxsize=None)
+def get_financial_data(CD_CVM_list: Tuple[int, ...]) -> Dict[str, Any]:
+    """Fetches and returns financial data for the given CD_CVM list."""
+    income, balance, _ = get_financial_statements_batch(list(CD_CVM_list))
     
     financial_data = {
         "income_statements": [],
@@ -27,10 +29,9 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
         balance_data = balance[code].to_dict(orient='records')
         
         # Decode the 'DS_CONTA' column
-        for item in income_data:
-            item['DS_CONTA'] = unidecode(item['DS_CONTA'])
-        for item in balance_data:
-            item['DS_CONTA'] = unidecode(item['DS_CONTA'])
+        for data in (income_data, balance_data):
+            for item in data:
+                item['DS_CONTA'] = unidecode(item['DS_CONTA'])
         
         financial_data["income_statements"].append(income_data)
         financial_data["balance_sheets"].append(balance_data)
@@ -79,17 +80,10 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
     try:
         print("Starting get_financial_prediction...")
 
-        # Determine the available years based on the data
-        available_years = sorted([int(year.split('-')[0]) for year in financial_data["income_statements"][0][0].keys() if year.startswith('20')])
+        available_years = sorted(set(int(year.split('-')[0]) for year in financial_data["income_statements"][0][0].keys() if year.startswith('20')))
         
-        # Select the last n_years for prediction, ensuring at least 5 years of data for each prediction
-        target_years = []
-        for year in reversed(available_years[-n_years:]):
-            if year - 5 in available_years:
-                target_years.append(year)
-            else:
-                print(f"Skipping year {year} due to insufficient historical data.")
-        target_years.reverse()  # Reverse to maintain chronological order
+        target_years = [year for year in reversed(available_years[-n_years:]) if year - 5 in available_years]
+        target_years.reverse()
         
         if not target_years:
             print("Not enough historical data for prediction. At least 5 years of data are required.")
@@ -97,34 +91,25 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
         
         print(f"Target years determined: {target_years}")
 
-        # Create a prompt for each target year
-        prompts = []
-        for year in target_years:
-            prompt_template = create_prompt_template()
-            # Use data up to the year before the target year, ensuring at least 5 years of data
-            data_up_to = year - 1
-            data_from = min(year - 6, available_years[0])  # Ensure we use at least 5 years of data
-            filtered_financial_data = {
-                key: [
-                    [{k: v for k, v in item.items() if k == 'DS_CONTA' or (k.startswith('20') and data_from <= int(k.split('-')[0]) <= data_up_to)}
-                     for item in statement]
-                    for statement in value
-                ]
-                for key, value in financial_data.items()
-            }
-            prompt = prompt_template.format(financial_data=filtered_financial_data, target_year=year)
-            prompts.append(prompt)
-        
-        print("Prompts created.")
-
-        # Initialize the OpenAI API
+        prompt_template = create_prompt_template()
         openai_api = ChatOpenAI(model="gpt-4o", temperature=1)
         
-        # Get the predictions from the OpenAI API for each target year
         predictions = {}
-        for i, prompt in enumerate(prompts):
+        for year in target_years:
             try:
-                print(f"Sending prompt for year {target_years[i]}...")
+                data_up_to = year - 1
+                data_from = min(year - 6, available_years[0])
+                filtered_financial_data = {
+                    key: [
+                        [{k: v for k, v in item.items() if k == 'DS_CONTA' or (k.startswith('20') and data_from <= int(k.split('-')[0]) <= data_up_to)}
+                         for item in statement]
+                        for statement in value
+                    ]
+                    for key, value in financial_data.items()
+                }
+                prompt = prompt_template.format(financial_data=filtered_financial_data, target_year=year)
+                
+                print(f"Sending prompt for year {year}...")
                 response = openai_api.generate([
                     [
                         {"role": "system", "content": "As a Brazilian experienced equity research analyst, your task is to analyze the provided financial statements and predict future earnings for the specified target period."},
@@ -132,14 +117,10 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
                     ]
                 ])
                 
-                # Print the response for debugging
-                print(f"Response from OpenAI API for year {target_years[i]}: {response}")
-                
-                # Store the entire response in the dictionary
-                predictions[target_years[i]] = response
+                print(f"Response from OpenAI API for year {year}: {response}")
+                predictions[year] = response
             except Exception as e:
-                print(f"Error processing year {target_years[i]}: {str(e)}")
-                continue
+                print(f"Error processing year {year}: {str(e)}")
 
         print("Predictions received.")
         return predictions
@@ -203,21 +184,12 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any]) -> pd.DataFrame:
     return pd.DataFrame(parsed_data)
 
 def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
-    """
-    Generates financial predictions for a list of CD_CVM codes and target years.
-    
-    Args:
-    CD_CVM_list (List[int]): List of CD_CVM codes to process.
-    n_years (int): Number of most recent years to predict for each CD_CVM code.
-    
-    Returns:
-    pd.DataFrame: A DataFrame containing predictions for all CD_CVM codes and target years.
-    """
+    """Generates financial predictions for a list of CD_CVM codes and target years."""
     all_predictions = []
     
     for cd_cvm in CD_CVM_list:
         print(f"Processing CD_CVM: {cd_cvm}")
-        financial_data = get_financial_data([cd_cvm])
+        financial_data = get_financial_data((cd_cvm,))
         predictions = get_financial_prediction(financial_data, n_years)
         
         if predictions:
@@ -227,21 +199,10 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.Da
         else:
             print(f"No predictions generated for CD_CVM: {cd_cvm}")
     
-    if all_predictions:
-        return pd.concat(all_predictions, ignore_index=True)
-    else:
-        return pd.DataFrame()
+    return pd.concat(all_predictions, ignore_index=True)
 
 def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Adds an actual_earnings_direction column and a NAME column to the predictions DataFrame.
-    
-    Args:
-    predictions_df (pd.DataFrame): DataFrame returned by get_financial_prediction_list
-    
-    Returns:
-    pd.DataFrame: Updated DataFrame with actual_earnings_direction and NAME columns
-    """
+    """Adds an actual_earnings_direction column and a NAME column to the predictions DataFrame."""
     def normalize_string(s):
         return unidecode(s).lower()
 
@@ -262,7 +223,7 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
         year = row['Year']
         
         try:
-            financial_data = get_financial_data([cd_cvm])
+            financial_data = get_financial_data((cd_cvm,))
             if not financial_data or 'income_statements' not in financial_data or not financial_data['income_statements']:
                 print(f"No financial data found for CD_CVM: {cd_cvm}")
                 return np.nan
