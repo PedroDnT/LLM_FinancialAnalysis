@@ -12,10 +12,8 @@ def upload_predictions(cd_cvm_list, n_years):
     processed_df = post_added_data(predictions_df)
     
     # Create a primary key by concatenating CD_CVM and Year
-    processed_df['primary_key'] = range(1, len(processed_df) + 1)
     
     # Set the primary key as the index
-    processed_df.set_index('primary_key', inplace=True)
     
     # Create database connection
     engine = create_engine(db_connection_string)
