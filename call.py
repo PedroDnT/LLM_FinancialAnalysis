@@ -46,24 +46,28 @@ def create_prompt_template() -> ChatPromptTemplate:
     2. Start directly with the analysis sections as outlined below.
     3. Provide all sections in the exact order and format specified.
     4. Use at least 5 years of historical data prior to the target year for your analysis.
-
+    5. Analyze both income statements and balance sheets in your prediction.
+    6. Focus on predicting the 'Resultado Líquido das Operações Continuadas' (Net Income from Continuing Operations) as the main earnings metric.
+    
     Your response must follow this exact structure:
 
-    Panel A ||| [Trend Analysis: Analyze relevant trends over at least the past five years.]
+    Panel A ||| [Trend Analysis: Analyze relevant trends over at least the past five years, with a focus on 'Resultado Líquido das Operações Continuadas'.]
     Panel B ||| [Ratio Analysis: Calculate and analyze key financial ratios over at least the past five years, interpreting their implications for future earnings.]
-    Panel C ||| [Rationale: Summarize your analyses and explain your prediction reasoning concisely, considering the long-term trends.]
+    Panel C ||| [Rationale: Summarize your analyses and explain your prediction reasoning concisely, considering the long-term trends and focusing on 'Resultado Líquido das Operações Continuadas'.]
     Direction ||| [increase/decrease]
     Magnitude ||| [large/moderate/small]
     Confidence ||| [0.00 to 1.00]
 
     Additional guidelines:
-    - Be precise and focused in your explanations.
-    - For Magnitude, use only one of these words: large, moderate, or small.
+    - Be precise, focused and cocise in your explanations.
+    - For Magnitude, you must use exactly one of these words: large, moderate, or small. Do not skip this or use any other terms.
     - For Confidence, provide a single number between 0.00 and 1.00.
     - Do not include formulas or calculations in your response.
     - Use '|||' as a delimiter between section headers and content.
     - Ensure your analysis covers at least 5 years of historical data.
-    
+    - Return responses in English.
+    - No need to define fomulas or calculations in your response. Just mention the ratio or the value by name.
+    - When referring to earnings, always use 'Resultado Líquido das Operaçes Continuadas' as the key metric, but call it just earnings.
 
     Financial data: {financial_data}
     Target year: {target_year}
@@ -71,8 +75,6 @@ def create_prompt_template() -> ChatPromptTemplate:
     return ChatPromptTemplate.from_template(template)
 
 def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Dict[int, Any]:
-
-
     """Calls the prompt template and returns the entire response in a dictionary for a given CD_CVM."""
     try:
         print("Starting get_financial_prediction...")
@@ -105,11 +107,11 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
             filtered_financial_data = {
                 key: [
                     [{k: v for k, v in item.items() if k == 'DS_CONTA' or (k.startswith('20') and data_from <= int(k.split('-')[0]) <= data_up_to)}
-             for item in statement]
-            for statement in value
-        ]
-        for key, value in financial_data.items()
-    }
+                     for item in statement]
+                    for statement in value
+                ]
+                for key, value in financial_data.items()
+            }
             prompt = prompt_template.format(financial_data=filtered_financial_data, target_year=year)
             prompts.append(prompt)
         
@@ -164,7 +166,14 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any]) -> pd.DataFrame:
         direction = 1 if direction_match and 'increase' in direction_match.group(1).lower() else -1
         
         magnitude_match = re.search(r'Magnitude \|\|\| (\w+)', text, re.IGNORECASE)
-        magnitude = magnitude_match.group(1).lower() if magnitude_match else 'N/A'
+        if magnitude_match:
+            magnitude = magnitude_match.group(1).lower()
+            if magnitude not in ['large', 'moderate', 'small']:
+                print(f"Warning: Unexpected magnitude value '{magnitude}' for year {year}. Setting to 'moderate'.")
+                magnitude = 'moderate'
+        else:
+            print(f"Warning: No magnitude found for year {year}. Setting to 'moderate'.")
+            magnitude = 'moderate'
         
         confidence_match = re.search(r'Confidence \|\|\| (\d+\.\d+)', text, re.IGNORECASE)
         try:
@@ -192,3 +201,133 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any]) -> pd.DataFrame:
         })
     
     return pd.DataFrame(parsed_data)
+
+def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
+    """
+    Generates financial predictions for a list of CD_CVM codes and target years.
+    
+    Args:
+    CD_CVM_list (List[int]): List of CD_CVM codes to process.
+    n_years (int): Number of most recent years to predict for each CD_CVM code.
+    
+    Returns:
+    pd.DataFrame: A DataFrame containing predictions for all CD_CVM codes and target years.
+    """
+    all_predictions = []
+    
+    for cd_cvm in CD_CVM_list:
+        print(f"Processing CD_CVM: {cd_cvm}")
+        financial_data = get_financial_data([cd_cvm])
+        predictions = get_financial_prediction(financial_data, n_years)
+        
+        if predictions:
+            df = parse_financial_prediction(predictions)
+            df['CD_CVM'] = cd_cvm
+            all_predictions.append(df)
+        else:
+            print(f"No predictions generated for CD_CVM: {cd_cvm}")
+    
+    if all_predictions:
+        return pd.concat(all_predictions, ignore_index=True)
+    else:
+        return pd.DataFrame()
+
+def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Adds an actual_earnings_direction column and a NAME column to the predictions DataFrame.
+    
+    Args:
+    predictions_df (pd.DataFrame): DataFrame returned by get_financial_prediction_list
+    
+    Returns:
+    pd.DataFrame: Updated DataFrame with actual_earnings_direction and NAME columns
+    """
+    def normalize_string(s):
+        return unidecode(s).lower()
+
+    def strip_markdown(text):
+        # Remove bold and italic markers
+        text = re.sub(r'\*\*|__', '', text)
+        text = re.sub(r'\*|_', '', text)
+        # Remove links
+        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+        # Remove backticks
+        text = re.sub(r'`', '', text)
+        # Remove any remaining special characters
+        text = re.sub(r'[#>~\-=|]', '', text)
+        return text.strip()
+
+    def get_actual_direction(row):
+        cd_cvm = row['CD_CVM']
+        year = row['Year']
+        
+        try:
+            financial_data = get_financial_data([cd_cvm])
+            if not financial_data or 'income_statements' not in financial_data or not financial_data['income_statements']:
+                print(f"No financial data found for CD_CVM: {cd_cvm}")
+                return np.nan
+            
+            income_statement = financial_data['income_statements'][0]
+            
+            print(f"Debug: Income statement structure for CD_CVM {cd_cvm}:")
+            print(f"Type: {type(income_statement)}")
+            print(f"Number of items: {len(income_statement)}")
+            print(f"Sample content: {income_statement[:2]}")
+            
+            earnings_metrics = [
+                'Resultado Liquido das Operacoes Continuadas',
+                'Lucro/Prejuizo Consolidado do Periodo',
+                'Lucro/Prejuizo do Periodo'
+            ]
+            
+            normalized_metrics = [normalize_string(metric) for metric in earnings_metrics]
+            
+            earnings_row = None
+            for item in income_statement:
+                normalized_ds_conta = normalize_string(item['DS_CONTA'])
+                if normalized_ds_conta in normalized_metrics:
+                    earnings_row = item
+                    print(f"Using earnings metric: {item['DS_CONTA']}")
+                    break
+            
+            if earnings_row is None:
+                print(f"No suitable earnings metric found for CD_CVM: {cd_cvm}")
+                print(f"Available metrics: {[item['DS_CONTA'] for item in income_statement]}")
+                return np.nan
+            
+            print(f"Debug: Earnings row for CD_CVM {cd_cvm}: {earnings_row}")
+            
+            current_year_earnings = earnings_row.get(f'{year}-12-31')
+            previous_year_earnings = earnings_row.get(f'{year-1}-12-31')
+            
+            print(f"Debug: Current year earnings ({year}): {current_year_earnings}")
+            print(f"Debug: Previous year earnings ({year-1}): {previous_year_earnings}")
+            
+            if current_year_earnings is None or previous_year_earnings is None:
+                print(f"Missing earnings data for CD_CVM: {cd_cvm}, Year: {year}")
+                return np.nan
+            
+            try:
+                current_year_earnings = float(current_year_earnings)
+                previous_year_earnings = float(previous_year_earnings)
+            except ValueError:
+                print(f"Error converting earnings to float for CD_CVM: {cd_cvm}, Year: {year}")
+                return np.nan
+            
+            return 1 if current_year_earnings > previous_year_earnings else -1
+        except Exception as e:
+            print(f"Error processing CD_CVM: {cd_cvm}, Year: {year}. Error: {str(e)}")
+            return np.nan
+    
+    # Apply the function to each row
+    predictions_df['actual_earnings_direction'] = predictions_df.apply(get_actual_direction, axis=1)
+    
+    # Add the NAME column
+    predictions_df['NAME'] = predictions_df['CD_CVM'].apply(get_company_name_by_cd_cvm)
+    
+    # Strip markdown from Panel A, B, and C
+    for panel in ['Panel A', 'Panel B', 'Panel C']:
+        if panel in predictions_df.columns:
+            predictions_df[panel] = predictions_df[panel].apply(strip_markdown)
+    
+    return predictions_df

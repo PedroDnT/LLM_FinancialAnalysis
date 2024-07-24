@@ -149,6 +149,7 @@ def get_company_name_by_cd_cvm(cd_cvm):
             return None
   
 def analyze_model_performance(df):
+
     grouped = df.groupby(['Model', 'Company'])
 
     # Initialize an empty DataFrame to store the results
@@ -177,3 +178,5 @@ def analyze_model_performance(df):
         results = pd.concat([results, current_results], ignore_index=True)
 
     return results
+
+#get 
