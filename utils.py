@@ -35,11 +35,6 @@ def calculate_actual_results(income_statement: pd.DataFrame) -> Tuple[List[Tuple
             results.append((period, result))
     return results, sorted_dates
 
-# These functions can be moved to a separate file, e.g., "utils.py"
-
-
-# --- Functions related to financial data fetching ---
-
 def get_financial_statements_batch(cd_cvm_list: List[str]) -> Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], Dict[str, pd.DataFrame]]:
     """Fetches financial statements for a batch of CD_CVM codes."""
     income_statements = execute_query(cd_cvm_list, 'ist')
@@ -47,7 +42,7 @@ def get_financial_statements_batch(cd_cvm_list: List[str]) -> Tuple[Dict[str, pd
     cash_flows = execute_query(cd_cvm_list, 'cf')
     return income_statements, balance_sheets, cash_flows
 
-db_connection_string = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}?sslmode=require"
+db_connection_string ="postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
 
 # Create a connection pool
 pool = SimpleConnectionPool(1, 20, db_connection_string)
@@ -99,7 +94,7 @@ def execute_query(CD_CVM_list, table_name):
             cursor.execute(query, (CD_CVM_list,))
             columns = [desc[0] for desc in cursor.description]
             result = cursor.fetchall()
-            print(f"Query executed successfully for table '{table_name}' and CD_CVM list: {CD_CVM_list}")
+            print(f"Successfully executed the SQL query on the table '{table_name}' for the following CVM codes: {CD_CVM_list}")
             df = pd.DataFrame(result, columns=columns)
             # Drop columns where all rows are None
             df = df.dropna(axis=1, how='all')

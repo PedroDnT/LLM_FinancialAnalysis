@@ -1,29 +1,29 @@
 import os
-import json
+import re
 from typing import Dict, Any, List, Tuple
-import langchain
-from langchain.prompts import PromptTemplate
+import random
+import requests
+from dotenv import load_dotenv
+from sklearn.metrics import precision_score, f1_score
+import pandas as pd
+from utils import get_company_name_by_cd_cvm, get_financial_statements_batch, calculate_actual_results
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables.base import RunnableSequence
 from langchain.callbacks import get_openai_callback
 from langchain.output_parsers import PydanticOutputParser
-from langchain.schema import OutputParserException
+from langchain.schema import OutputParserException, HumanMessage
 from pydantic import BaseModel, Field
-import pandas as pd
-import requests
-from utils import *
-import random
-from dotenv import load_dotenv
-load_dotenv()
+import js
 
+# Load environment variables
+load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is not set")
-
-
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 class PredictionOutput(BaseModel):
     company: str = Field(alias="Company")
@@ -52,40 +52,22 @@ prompt_template = PromptTemplate(
     3. Rationale (Panel C): Summarize your analyses on trend and ratio to make a prediction specific to {company_name}. Explain your prediction reasoning concisely.
     4. Prediction: Given your previous analyses, work out a unified analysis and predict the earnings direction (increase/decrease), magnitude (large/moderate/small), and confidence (0.0-1.0) for {company_name}.
 
-    Provide your response in the following JSON format:
-    {{
-        "Company": "{company_name}",
-        "Model": "{provider}/{model}",
-        "TREND ANALYSIS": "[Summary of trend analysis]",
-        "RATIO ANALYSIS": "[Summary of ratio analysis]",
-        "RATIONALE": "[Summary of rationale for prediction]",
-        "DIRECTION": "[increase/decrease]",
-        "MAGNITUDE": "[large/moderate/small]",
-        "CONFIDENCE LEVEL": [0.00 to 1.00],
-        "ACTUAL DIRECTION": [actual direction],
-        "CD_CVM": "{cd_cvm}",
-        "TARGET PERIOD": "{target_period}",
-        "TOKEN USAGE": [token usage]
-    }}
-
-    Provide your response in this format for the target period:
+    Provide your response in the following format:
     Panel A - Trend Analysis: [Summary of trend analysis]
     Panel B - Ratio Analysis: [Summary of ratio analysis]
     Panel C - Rationale: [Summary of rationale for prediction]
     Direction: [increase/decrease]
     Magnitude: [large/moderate/small]
     Confidence: [0.00 to 1.00]
-
-    Info to analyze:
     Company: {company_name}
-    CVM Code: {cd_cvm}
-    Financial data: {financial_data}
-    Target period: {target_period}
-    """,
-    output_parser=output_parser
+    Model: {provider}/{model}
+    CD_CVM: {cd_cvm}
+    TARGET PERIOD: {target_period}
+    TOKEN USAGE: [token usage]
+    """
 )
 
-def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str, provider: str) -> Tuple[str, int]:
+def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str, provider: str) -> Tuple[Dict[str, Any], int]:
     company_name = get_company_name_by_cd_cvm(cd_cvm)
     if provider == "openai":
         llm = ChatOpenAI(api_key=OPENAI_API_KEY, model=model)
@@ -103,16 +85,9 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
             print(f"Response content: {response_content}")
             print(f"Response content type: {type(response_content)}")
             if not response_content:
-                raise ValueError("Response content is empty, cannot parse JSON.")
+                raise ValueError("Response content is empty, cannot parse.")
             response_content = response_content.strip("```").strip()
-            try:
-                response_content = response_content.strip("```").strip()
-                response_json = json.loads(response_content)
-                prediction = output_parser.parse(response_json)
-            except (OutputParserException, json.JSONDecodeError) as e:
-                print(f"Output parsing failed: {e}")
-                print(f"Response content: {response_content}")
-                prediction = manual_parse_response(response_content)
+            prediction = manual_parse_response(response_content)
             token_usage = cb.total_tokens if cb else 0
 
     elif provider == "openrouter":
@@ -122,10 +97,16 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
         }
         data = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt_template.format(company_name=company_name, cd_cvm=cd_cvm, financial_data=financial_data, target_period=target_period)}],
-            "temperature":0,
-            #"top_p":1,
-            "repetition_penalty":1,
+            "messages": [{"role": "user", "content": prompt_template.format(
+                company_name=company_name, 
+                cd_cvm=cd_cvm, 
+                financial_data=financial_data, 
+                target_period=target_period,
+                model=model,
+                provider=provider
+            )}],
+            "temperature": 0,
+            "repetition_penalty": 1,
             "max_tokens": 750,
             "seed": random.randint(0, 100), 
         }
@@ -135,36 +116,43 @@ def predict_earnings(cd_cvm, financial_data: str, target_period: str, model: str
         response_json = response.json()
         try:
             response_content = response_json['choices'][0]['message']['content']
-            try:
-                response_json = json.loads(response_content)
-            except json.JSONDecodeError as e:
-                print(f"JSON decoding failed: {e}")
-                print(f"Response content: {response_content}")
-                raise
-            prediction = output_parser.parse(response_json)
-        except (OutputParserException, json.JSONDecodeError, KeyError) as e:
+            print(f"Response content: {response_content}")
+            prediction = manual_parse_response(response_content)
+            token_usage = response_json.get("usage", {}).get("total_tokens", 0)
+        except KeyError as e:
             print(f"Output parsing failed: {e}")
             prediction = manual_parse_response(response_content)
             token_usage = response_json.get("usage", {}).get("total_tokens", 0)
-        token_usage = response_json["usage"]["total_tokens"]
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    return prediction.dict(), token_usage
+    return prediction, token_usage
 
 def manual_parse_response(response: str) -> Dict[str, Any]:
     print(f"Response content before manual parsing: {response}")
+    # Use regex or string manipulation to parse the response
     try:
-        response_json = json.loads(response)
-    except json.JSONDecodeError:
-        print(f"Invalid JSON response: {response}")
-        raise ValueError("Response is not in valid JSON format and cannot be parsed manually.")
-    return response_json
+        parsed_response = {}
+        parsed_response['TREND ANALYSIS'] = re.search(r"Panel A - Trend Analysis:\s*(.*)", response).group(1)
+        parsed_response['RATIO ANALYSIS'] = re.search(r"Panel B - Ratio Analysis:\s*(.*)", response).group(1)
+        parsed_response['RATIONALE'] = re.search(r"Panel C - Rationale:\s*(.*)", response).group(1)
+        parsed_response['DIRECTION'] = re.search(r"Direction:\s*(.*)", response).group(1)
+        parsed_response['MAGNITUDE'] = re.search(r"Magnitude:\s*(.*)", response).group(1)
+        parsed_response['CONFIDENCE LEVEL'] = float(re.search(r"Confidence:\s*(.*)", response).group(1))
+        parsed_response['Company'] = re.search(r"Company:\s*(.*)", response).group(1)
+        parsed_response['Model'] = re.search(r"Model:\s*(.*)", response).group(1)
+        parsed_response['CD_CVM'] = re.search(r"CD_CVM:\s*(.*)", response).group(1)
+        parsed_response['TARGET PERIOD'] = re.search(r"TARGET PERIOD:\s*(.*)", response).group(1)
+        parsed_response['TOKEN USAGE'] = int(re.search(r"TOKEN USAGE:\s*(.*)", response).group(1))
+        return parsed_response
+    except AttributeError as e:
+        print(f"Manual parsing failed: {e}")
+        raise ValueError("Response is not in valid format and cannot be parsed manually.")
 
 def parse_prediction(prediction: Dict[str, Any]) -> Dict[str, Any]:
     return prediction
 
-def run_predictions(cd_cvm_list: List[str], model: str, provider: str) -> pd.DataFrame:
+def run_predictions(cd_cvm_list: List[str], model: str, provider: str, n_years: int = 1) -> pd.DataFrame:
     results = []
     income_statements, balance_sheets, cash_flows = get_financial_statements_batch(cd_cvm_list)
 
@@ -182,9 +170,9 @@ def run_predictions(cd_cvm_list: List[str], model: str, provider: str) -> pd.Dat
         for target_period, actual_result in actual_results:
             target_index = sorted_dates.index(target_period)
             relevant_data = {
-                'income_statement': income_statement[sorted_dates[max(0, target_index-5):target_index]].to_dict(),
-                'balance_sheet': balance_sheet[sorted_dates[max(0, target_index-5):target_index]].to_dict(),
-                'cash_flow_statement': cash_flow[sorted_dates[max(0, target_index-5):target_index]].to_dict()
+                'income_statement': income_statement[sorted_dates[max(0, target_index - n_years * 5):target_index]].to_dict(),
+                'balance_sheet': balance_sheet[sorted_dates[max(0, target_index - n_years * 5):target_index]].to_dict(),
+                'cash_flow_statement': cash_flow[sorted_dates[max(0, target_index - n_years * 5):target_index]].to_dict()
             }
             financial_data = json.dumps(relevant_data)
             company_name = get_company_name_by_cd_cvm(cd_cvm)
@@ -200,21 +188,14 @@ def run_predictions(cd_cvm_list: List[str], model: str, provider: str) -> pd.Dat
 
     return pd.DataFrame(results)
 
-from sklearn.metrics import precision_score, f1_score
-import pandas as pd
-
 def evaluate_predictions(df):
-    # Calculate precision and f1 score
     precision = precision_score(df['ACTUAL DIRECTION'], df['DIRECTION'], average='binary', pos_label=1).round(3)
     f1 = f1_score(df['ACTUAL DIRECTION'], df['DIRECTION'], average='binary', pos_label=1).round(3)
     Company = df['Company'].unique()   
     Model = df['Model'].unique()
-    #number of predictions
     N_Pred = len(df)
-    # Calculate average confidence level
     average_confidence = df['CONFIDENCE LEVEL'].mean().round(3)
     
-    # Create a DataFrame to return the results
     results_df = pd.DataFrame({
         'Company': Company,
         'Model': Model,
@@ -222,7 +203,6 @@ def evaluate_predictions(df):
         'F1 Score': [f1],
         'Average Confidence Level': [average_confidence],
         'Number of Predictions': [N_Pred],
-
     })
     
     return results_df
@@ -237,5 +217,5 @@ if __name__ == "__main__":
     model = sys.argv[2]
     provider = sys.argv[3]
     
-    results = main(cvm_code, model, provider)
+    results = run_predictions([cvm_code], model, provider)
     print(results)

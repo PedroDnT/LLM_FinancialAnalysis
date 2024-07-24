@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 import os
 
 # Database connection string
-db_connection_string = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}?sslmode=require"
+db_connection_string ="postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
 
 # Create SQLAlchemy engine
 engine = create_engine(db_connection_string)

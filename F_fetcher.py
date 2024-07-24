@@ -9,7 +9,7 @@ import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
 
-db_connection_string = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}?sslmode=require"
+db_connection_string ="postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
 
 # Create a connection pool
 pool = SimpleConnectionPool(1, 20, db_connection_string)
