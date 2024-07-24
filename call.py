@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableSequence
@@ -75,15 +75,21 @@ def create_prompt_template() -> ChatPromptTemplate:
     """
     return ChatPromptTemplate.from_template(template)
 
-def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Dict[int, Any]:
-    """Calls the prompt template and returns the entire response in a dictionary for a given CD_CVM."""
+def get_financial_prediction(financial_data: Dict[str, Any], n_years: Optional[int] = None) -> Dict[int, Any]:
+    """
+    Calls the prompt template and returns the entire response in a dictionary for a given CD_CVM.
+    If n_years is not provided, it predicts for all available years with at least 5 years of historical data.
+    """
     try:
         print("Starting get_financial_prediction...")
 
         available_years = sorted(set(int(year.split('-')[0]) for year in financial_data["income_statements"][0][0].keys() if year.startswith('20')))
         
-        target_years = [year for year in reversed(available_years[-n_years:]) if year - 5 in available_years]
-        target_years.reverse()
+        if n_years is None:
+            target_years = [year for year in available_years if year - 5 in available_years]
+        else:
+            target_years = [year for year in reversed(available_years[-n_years:]) if year - 5 in available_years]
+            target_years.reverse()
         
         if not target_years:
             print("Not enough historical data for prediction. At least 5 years of data are required.")
@@ -98,7 +104,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
         for year in target_years:
             try:
                 data_up_to = year - 1
-                data_from = min(year - 6, available_years[0])
+                data_from = year - 6
                 filtered_financial_data = {
                     key: [
                         [{k: v for k, v in item.items() if k == 'DS_CONTA' or (k.startswith('20') and data_from <= int(k.split('-')[0]) <= data_up_to)}
@@ -183,7 +189,7 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any]) -> pd.DataFrame:
     
     return pd.DataFrame(parsed_data)
 
-def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
+def get_financial_prediction_list(CD_CVM_list: List[int], n_years: Optional[int] = None) -> pd.DataFrame:
     """Generates financial predictions for a list of CD_CVM codes and target years."""
     all_predictions = []
     
@@ -199,7 +205,7 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.Da
         else:
             print(f"No predictions generated for CD_CVM: {cd_cvm}")
     
-    return pd.concat(all_predictions, ignore_index=True)
+    return pd.concat(all_predictions, ignore_index=True) if all_predictions else pd.DataFrame()
 
 def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
     """Adds an actual_earnings_direction column and a NAME column to the predictions DataFrame."""
