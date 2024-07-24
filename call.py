@@ -51,7 +51,7 @@ def create_prompt_template() -> ChatPromptTemplate:
     
     Your response must follow this exact structure:
 
-    Panel A ||| [Trend Analysis: Analyze relevant trends over at least the past five years, with a focus on 'Resultado Líquido das Operações Continuadas'.]
+    Panel A ||| [Trend Analysis: Analyze relevant trends over at least the past five years,.]
     Panel B ||| [Ratio Analysis: Calculate and analyze key financial ratios over at least the past five years, interpreting their implications for future earnings.]
     Panel C ||| [Rationale: Summarize your analyses and explain your prediction reasoning concisely, considering the long-term trends and focusing on 'Resultado Líquido das Operações Continuadas'.]
     Direction ||| [increase/decrease]
