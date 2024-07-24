@@ -41,6 +41,8 @@ def create_prompt_template() -> ChatPromptTemplate:
     """
     return ChatPromptTemplate.from_template(template)
 
+
+
 def get_financial_prediction(financial_data: str, target_period: str) -> pd.DataFrame:
     """Calls the prompt template and returns the result in a pandas DataFrame for a given CD_CVM."""
     prompt_template = create_prompt_template()
