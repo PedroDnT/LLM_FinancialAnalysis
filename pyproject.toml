@@ -4,6 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["PedroDnT <pedrotodescan@gmail.com>"]
 readme = "README.md"
+package-mode = false
 
 [tool.poetry.dependencies]
 pandas = "^2.2.2"
