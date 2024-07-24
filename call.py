@@ -41,4 +41,38 @@ def create_prompt_template() -> ChatPromptTemplate:
     """
     return ChatPromptTemplate.from_template(template)
 
-## AIDER HERE CREATE FUNCTION THAT RETURNS CALLS THE PROMPT TEMPLATE AND RETURNS THE RESULT IN A PANDAS DATAFRAME FOR A CD_CVM PASSED AS INPUT
+def get_financial_prediction(financial_data: str, target_period: str) -> pd.DataFrame:
+    """Calls the prompt template and returns the result in a pandas DataFrame for a given CD_CVM."""
+    prompt_template = create_prompt_template()
+    prompt = prompt_template.render(financial_data=financial_data, target_period=target_period)
+    
+    # Initialize the OpenAI API
+    openai_api = ChatOpenAI()
+    
+    # Get the prediction from the OpenAI API
+    response = openai_api.complete(prompt)
+    
+    # Parse the response
+    result = response['choices'][0]['text'].strip()
+    
+    # Extract the relevant sections from the response
+    sections = result.split('\n')
+    trend_analysis = sections[0].replace("Panel A - Trend Analysis: ", "").strip()
+    ratio_analysis = sections[1].replace("Panel B - Ratio Analysis: ", "").strip()
+    rationale = sections[2].replace("Panel C - Rationale: ", "").strip()
+    direction = sections[3].replace("Direction: ", "").strip()
+    magnitude = sections[4].replace("Magnitude: ", "").strip()
+    confidence = sections[5].replace("Confidence: ", "").strip()
+    
+    # Create a DataFrame
+    data = {
+        "Trend Analysis": [trend_analysis],
+        "Ratio Analysis": [ratio_analysis],
+        "Rationale": [rationale],
+        "Direction": [direction],
+        "Magnitude": [magnitude],
+        "Confidence": [confidence]
+    }
+    df = pd.DataFrame(data)
+    
+    return df
