@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from sklearn.metrics import precision_score, f1_score
 import pandas as pd
 load_dotenv()
+db_connection_string ="postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
 
 
 def calculate_actual_results(income_statement: pd.DataFrame) -> Tuple[List[Tuple[str, int]], List[str]]:
@@ -42,8 +43,6 @@ def get_financial_statements_batch(cd_cvm_list: List[str]) -> Tuple[Dict[str, pd
     cash_flows = execute_query(cd_cvm_list, 'cf')
     return income_statements, balance_sheets, cash_flows
 
-db_connection_string ="postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
-
 # Create a connection pool
 pool = SimpleConnectionPool(1, 20, db_connection_string)
 
@@ -59,7 +58,7 @@ def execute_query(CD_CVM_list, table_name):
     with get_connection() as conn:
         cursor = conn.cursor()
         query = sql.SQL("""
-            SELECT "CD_CVM", "DS_CONTA", 
+            SELECT "CD_CVM", "CD_CONTA", "DS_CONTA", 
                 MAX(CASE WHEN "DT_FIM_EXERC" = '2010-12-31' THEN "VL_CONTA" END) AS "2010-12-31", 
                 MAX(CASE WHEN "DT_FIM_EXERC" = '2011-12-31' THEN "VL_CONTA" END) AS "2011-12-31", 
                 MAX(CASE WHEN "DT_FIM_EXERC" = '2012-12-31' THEN "VL_CONTA" END) AS "2012-12-31", 
@@ -77,17 +76,15 @@ def execute_query(CD_CVM_list, table_name):
             FROM 
                 (
                     SELECT 
-                        "CD_CVM",
-                        "DS_CONTA", 
-                        "DT_FIM_EXERC", 
-                        "VL_CONTA"
+                        *
                     FROM 
                         {}
                     WHERE 
                         "CD_CVM" = ANY(%s) AND 
                         "ST_CONTA_FIXA" = 'S'
                 ) AS filtered_data
-            GROUP BY "CD_CVM", "DS_CONTA"
+            GROUP BY "CD_CVM", "CD_CONTA", "DS_CONTA"
+            ORDER BY "CD_CONTA"
         """).format(sql.Identifier(table_name))
         
         try:
@@ -99,7 +96,7 @@ def execute_query(CD_CVM_list, table_name):
             # Drop columns where all rows are None
             df = df.dropna(axis=1, how='all')
             # Group by CD_CVM
-            return {cd_cvm: group.drop('CD_CVM', axis=1) for cd_cvm, group in df.groupby('CD_CVM')}
+            return {cd_cvm: group.drop(['CD_CVM', 'CD_CONTA'], axis=1) for cd_cvm, group in df.groupby('CD_CVM')}
         except psycopg2.Error as error:
             print(f"Error executing query: {error}")
             conn.rollback()

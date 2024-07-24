@@ -7,3 +7,6 @@
 cvm_db.code-workspace
 tests.ipynb
 call
+__pycache__
+
+__pychache

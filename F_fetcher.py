@@ -73,7 +73,6 @@ def execute_query(CD_CVM_list, table_name):
             print("Transaction rolled back.")
             return None
     
-
 def get_distinct_cd_cvm():
     with get_connection() as conn:
         cursor = conn.cursor()
