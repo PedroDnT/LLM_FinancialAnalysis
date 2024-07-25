@@ -69,18 +69,15 @@ def upload_predictions(cd_cvm_list: List[int], n_years: Optional[int] = None):
         # Convert DataFrame to list of dictionaries
         data = processed_df.reset_index().to_dict(orient='records')
         
-        # Perform upsert operation
+        # Perform insert-ignore operation
         with engine.connect() as conn:
             stmt = insert(table).values(data)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['Year_CD_CVM'],
-                set_={c.key: c for c in stmt.excluded if c.key != 'Year_CD_CVM'}
-            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=['Year_CD_CVM'])
             result = conn.execute(stmt)
             conn.commit()
         
-        num_uploaded = len(data)
-        print(f"Uploaded {num_uploaded} predictions to {table_name}")
+        num_uploaded = result.rowcount
+        print(f"Inserted {num_uploaded} new predictions to {table_name}")
         return num_uploaded
     
     except Exception as e:

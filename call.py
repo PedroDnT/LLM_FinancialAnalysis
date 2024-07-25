@@ -36,33 +36,35 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
 def create_prompt_template() -> ChatPromptTemplate:
     """Creates a prompt template for the financial prediction task."""
     template = """
-    Analyze the provided financial data for the target year {target_year} and provide a concise prediction. Follow these instructions strictly:
+    Analyze the provided financial data for the target year {target_year} and provide a concise prediction. Use the provided income statements and balance sheets data for your analysis.
 
-    1. Do not include any introductory text or pleasantries.
-    2. Start directly with the analysis sections as outlined below.
-    3. Provide all sections in the exact order and format specified.
-    4. Use at least 5 years of historical data prior to the target year for your analysis.
-    5. Analyze both income statements and balance sheets in your prediction.
-    6. Focus on predicting the 'Resultado Líquido das Operações Continuadas' (Net Income from Continuing Operations) as the main earnings metric.
-    
-    Your response must follow this exact structure, with each section on a new line:
+    Follow these guidelines step-by-step to ensure a detailed and accurate analysis:
+    Step 1: Review historical revenue and profit trends. Identify and explain significant changes and underlying factors.   
+    Step 2: Perform a ratio analysis focusing on key financial ratios, and explain their economic impact on the company's financial health. No need to define the formula, return the reasoning.
+    Step 3: Provide a rationale for your prediction based on observed financial data, trends and ratios.
 
-    Panel A ||| [Trend Analysis]
-    Panel B ||| [Ratio Analysis]
-    Panel C ||| [Rationale]
-    Direction ||| [increase/decrease]
+    Structure your response as follows, with each section on a new line:
+
+    Panel A ||| Step 1 content
+    Panel B ||| Step 2 content
+    Panel C ||| Step 3 content
+    Direction ||| [1/-1]
     Magnitude ||| [large/moderate/small]
     Confidence ||| [0.00 to 1.00]
 
     Additional guidelines:
-    - Be precise, focused and concise in your explanations.
-    - For Magnitude, you must use exactly one of these words: large, moderate, or small.
+    - Do not include any introductory text or pleasantries.
+    - Be precise, focused, and concise in your explanations.
+    - For Direction, use 1 for increase and -1 for decrease.
+    - For Magnitude, use one of these words: large, moderate, or small.
     - For Confidence, provide a single number between 0.00 and 1.00.
-    - Do not include the Direction, Magnitude, or Confidence information in the Panel C section.
-    - Ensure each section is clearly separated by the '|||' delimiter.
+    - Do not include Direction, Magnitude, or Confidence in Panel C.
+    - Separate each section with the '|||' delimiter.
     - Do not skip any sections or change their order.
 
-    Financial data: {financial_data}
+    Financial data:
+    Income Statements: {financial_data[income_statements]}
+    Balance Sheets: {financial_data[balance_sheets]}
     Target year: {target_year}
     """
     return ChatPromptTemplate.from_template(template)
@@ -112,7 +114,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
                 print(f"Sending prompt for year {year}...")
                 response = openai_api.generate([
                     [
-                        {"role": "system", "content": "As a Brazilian experienced equity research analyst, your task is to analyze the provided financial statements and predict future earnings for the specified target period."},
+                        {"role": "system", "content": "As a Brazilian experienced local equity research analyst, your task is to analyze the provided financial statements and and make estimates."},
                         {"role": "user", "content": prompt}
                     ]
                 ], logprobs=True)  # Add logprobs=True here
@@ -157,7 +159,8 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
         # Extract direction, magnitude, and confidence
         direction = text.split('Direction |||')[1].split('Magnitude |||')[0].strip()
         magnitude = text.split('Magnitude |||')[1].split('Confidence |||')[0].strip()
-        confidence = float(text.split('Confidence |||')[1].strip())
+        confidence_str = text.split('Confidence |||')[1].strip()
+        confidence = float(confidence_str.strip('[]'))  # Remove square brackets and convert to float
         
         # Extract token usage and model information
         completion_tokens = llm_result.llm_output['token_usage']['completion_tokens']
@@ -168,19 +171,9 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
         logprobs = generation.generation_info['logprobs']['content']
         print(f"Raw logprobs: {logprobs}")  # Debug print
         
-        logprob_cumsum = 0
-        for token in logprobs:
-            if isinstance(token, dict) and 'logprob' in token:
-                lp = token['logprob']
-                if isinstance(lp, (int, float)):
-                    logprob_cumsum += lp
-                elif lp == '-inf':
-                    logprob_cumsum += float('-inf')
-                else:
-                    print(f"Unexpected logprob value: {lp}")  # Debug print
-        
-        print(f"Calculated logprob_cumsum: {logprob_cumsum}")  # Debug print
-        
+        logprob_values = [item['logprob'] for item in logprobs if isinstance(item, dict) and 'logprob' in item]
+        average_logprob = np.mean(logprob_values)
+
         # Create the Year_CD_CVM column
         year_cd_cvm = f"{year}_{cd_cvm}"
         
@@ -197,8 +190,9 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
             'Completion Tokens': completion_tokens,
             'Prompt Tokens': prompt_tokens,
             'Model Name': model_name,
-            'Logprob Cumsum': logprob_cumsum
+            'Average Logprob': average_logprob, 
         })
+        
     return pd.DataFrame(parsed_data)
 
 def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
