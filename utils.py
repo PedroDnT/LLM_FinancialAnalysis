@@ -12,7 +12,8 @@ import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
 from dotenv import load_dotenv
-from sklearn.metrics import precision_score, f1_score
+from sklearn.metrics import precision_score, f1_score, accuracy_score
+import numpy as np
 import pandas as pd
 load_dotenv()
 db_connection_string ="postgresql://cvmdb_owner:n3YuMA6raJxh@ep-proud-pine-a4ahmncp.us-east-1.aws.neon.tech/cvmdb?sslmode=require"
@@ -148,35 +149,56 @@ def get_company_name_by_cd_cvm(cd_cvm):
             print("Transaction rolled back.")
             return None
   
-def analyze_model_performance(df):
+def get_financial_predictions() -> pd.DataFrame:
+    """Queries the financial_predictions table and returns all entries as a pandas DataFrame."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = sql.SQL("""
+            SELECT *
+            FROM financial_predictions;
+        """)
 
-    grouped = df.groupby(['Model', 'Company'])
-
-    # Initialize an empty DataFrame to store the results
-    results = pd.DataFrame(columns=['Model', 'Company', 'Precision', 'F1 Score', 'Average Confidence Level', 'Count Magnitude'])
-
-    for name, group in grouped:
-        # Calculate precision and F1 score
-        precision = precision_score(group['ACTUAL DIRECTION'], group['DIRECTION'], average='binary', zero_division=0)
-        f1 = f1_score(group['ACTUAL DIRECTION'], group['DIRECTION'], average='binary', zero_division=0)
-        
-        # Calculate average confidence level
-        avg_confidence = group['CONFIDENCE LEVEL'].mean()
-        
-        # Count values in 'MAGNITUDE'
-        count_magnitude = group['MAGNITUDE'].value_counts().to_dict()
-        
-        # Create a DataFrame for the current results and concatenate it with the main results DataFrame
-        current_results = pd.DataFrame([{
-            'Model': name[0],
-            'Company': name[1],
-            'Precision': precision,
-            'F1 Score': f1,
-            'Average Confidence Level': avg_confidence,
-            'Count Magnitude': count_magnitude
-        }])
-        results = pd.concat([results, current_results], ignore_index=True)
-
-    return results
-
-#get 
+        try:
+            cursor.execute(query)
+            result = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]  # Get column names
+            print(f"Query executed successfully. Retrieved {len(result)} entries from financial_predictions table.")
+            return pd.DataFrame(result, columns=columns)  # Convert to pandas DataFrame
+        except psycopg2.Error as error:
+            print(f"Error executing query: {error}")
+            conn.rollback()
+            print("Transaction rolled back.")
+            return None
+            
+def calculate_metrics(df):
+    metrics = []
+    unique_cd_cvm = df['CD_CVM'].unique()
+    
+    for cd_cvm in unique_cd_cvm:
+        subset = df[df['CD_CVM'] == cd_cvm]
+        if not subset.empty:
+            y_true = subset['actual_earnings_direction'].astype(int)  # Ensure y_true is int
+            y_pred = subset['Prediction Direction'].astype(int)  # Ensure y_pred is int
+            name = subset['NAME'].iloc[0]  # Get the corresponding NAME
+            
+            f1 = round(f1_score(y_true, y_pred, average='weighted'), 2)
+            accuracy = round(accuracy_score(y_true, y_pred), 2)
+            precision = round(precision_score(y_true, y_pred, average='weighted', zero_division=0), 2)
+            
+            # Calculate weighted average of 'Average Logprob' weighted by 'Completion Tokens'
+            weighted_avg_logprob = round((subset['Average Logprob'] * subset['Completion Tokens']).sum() / subset['Completion Tokens'].sum(), 2)
+            
+            # Convert weighted average logprob to linear probability
+            linear_probability = round(np.exp(-weighted_avg_logprob)*100, 0)
+            
+            metrics.append({
+                'CD_CVM': cd_cvm,
+                'NAME': name,
+                'F1 Score': f1,
+                'Accuracy': accuracy,
+                'Precision': precision,
+                'Weighted Avg Logprob': weighted_avg_logprob,
+                'Linear Probability': linear_probability
+            })
+    
+    return pd.DataFrame(metrics)

@@ -69,23 +69,26 @@ def create_prompt_template() -> ChatPromptTemplate:
     """
     return ChatPromptTemplate.from_template(template)
 
-def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Dict[int, Any]:
+def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None) -> Dict[int, Any]:
     try:
         print("Starting get_financial_prediction...")
 
         available_years = sorted([int(year.split('-')[0]) for year in financial_data["income_statements"][0][0].keys() if year.startswith('20')])
         
         target_years = []
-        for year in reversed(available_years[-n_years:]):
-            if year - 5 in available_years:
+        for year in reversed(available_years):
+            if year - 6 in available_years:
                 target_years.append(year)
             else:
                 print(f"Skipping year {year} due to insufficient historical data.")
         target_years.reverse()
         
         if not target_years:
-            print("Not enough historical data for prediction. At least 5 years of data are required.")
+            print("Not enough historical data for prediction. At least 6 years of data are required.")
             return {}
+        
+        if n_years is not None:
+            target_years = target_years[-n_years:]
         
         print(f"Target years determined: {target_years}")
 
@@ -93,7 +96,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
         for year in target_years:
             prompt_template = create_prompt_template()
             data_up_to = year - 1
-            data_from = min(year - 6, available_years[0])
+            data_from = year - 6
             filtered_financial_data = {
                 key: [
                     [{k: v for k, v in item.items() if k == 'DS_CONTA' or (k.startswith('20') and data_from <= int(k.split('-')[0]) <= data_up_to)}
@@ -118,7 +121,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
                         {"role": "user", "content": prompt}
                     ]
                 ], logprobs=True)  # Add logprobs=True here
-                print(f"Response from OpenAI API for year {year}: {response}")
+                #print(f"Response from OpenAI API for year {year}: {response}")
                 return year, response
             except Exception as e:
                 print(f"Error processing year {year}: {str(e)}")
@@ -160,7 +163,14 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
         direction = text.split('Direction |||')[1].split('Magnitude |||')[0].strip()
         magnitude = text.split('Magnitude |||')[1].split('Confidence |||')[0].strip()
         confidence_str = text.split('Confidence |||')[1].strip()
-        confidence = float(confidence_str.strip('[]'))  # Remove square brackets and convert to float
+        
+        # Clean up confidence string and convert to float
+        confidence_str = confidence_str.split('\n')[0].strip('[]')
+        try:
+            confidence = float(confidence_str)
+        except ValueError:
+            print(f"Warning: Could not convert confidence to float for year {year}. Using NaN.")
+            confidence = np.nan
         
         # Extract token usage and model information
         completion_tokens = llm_result.llm_output['token_usage']['completion_tokens']
@@ -169,7 +179,6 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
         
         # Extract and process logprobs
         logprobs = generation.generation_info['logprobs']['content']
-        print(f"Raw logprobs: {logprobs}")  # Debug print
         
         logprob_values = [item['logprob'] for item in logprobs if isinstance(item, dict) and 'logprob' in item]
         average_logprob = np.mean(logprob_values)
@@ -192,7 +201,7 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
             'Model Name': model_name,
             'Average Logprob': average_logprob, 
         })
-        
+    
     return pd.DataFrame(parsed_data)
 
 def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
@@ -262,10 +271,10 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
             
             income_statement = financial_data['income_statements'][0]
             
-            print(f"Debug: Income statement structure for CD_CVM {cd_cvm}:")
-            print(f"Type: {type(income_statement)}")
-            print(f"Number of items: {len(income_statement)}")
-            print(f"Sample content: {income_statement[:2]}")
+            #print(f"Debug: Income statement structure for CD_CVM {cd_cvm}:")
+            #print(f"Type: {type(income_statement)}")
+            #print(f"Number of items: {len(income_statement)}")
+            #print(f"Sample content: {income_statement[:2]}")
             
             earnings_metrics = [
                 'Resultado Liquido das Operacoes Continuadas',
