@@ -115,7 +115,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
                         {"role": "system", "content": "As a Brazilian experienced equity research analyst, your task is to analyze the provided financial statements and predict future earnings for the specified target period."},
                         {"role": "user", "content": prompt}
                     ]
-                ])
+                ], logprobs=True)  # Add logprobs=True here
                 print(f"Response from OpenAI API for year {year}: {response}")
                 return year, response
             except Exception as e:
@@ -142,7 +142,6 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Di
         print(f"First item in income_statements: {financial_data['income_statements'][0][0].keys()}")
         return {}
 
-
 def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> pd.DataFrame:
     parsed_data = []
     for year, llm_result in prediction_dict.items():
@@ -150,36 +149,37 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
         generation = llm_result.generations[0][0]
         text = generation.text
 
-        # Extract panels and prediction using the new delimiter
-        panels = re.split(r'Panel [A-C] \|\|\|', text)
-        panel_a = panels[1].strip() if len(panels) > 1 else ''
-        panel_b = panels[2].strip() if len(panels) > 2 else ''
-        panel_c = panels[3].strip() if len(panels) > 3 else ''
+        # Extract the panels
+        panel_a = text.split('Panel A |||')[1].split('Panel B |||')[0].strip()
+        panel_b = text.split('Panel B |||')[1].split('Panel C |||')[0].strip()
+        panel_c = text.split('Panel C |||')[1].split('Direction |||')[0].strip()
         
         # Extract direction, magnitude, and confidence
-        direction_match = re.search(r'Direction\s*\|\|\|\s*(\w+)', text, re.IGNORECASE)
-        direction = 1 if direction_match and 'increase' in direction_match.group(1).lower() else -1
-        
-        magnitude_match = re.search(r'Magnitude\s*\|\|\|\s*(\w+)', text, re.IGNORECASE)
-        magnitude = magnitude_match.group(1).lower() if magnitude_match else 'moderate'
-        
-        confidence_match = re.search(r'Confidence\s*\|\|\|\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
-        confidence = float(confidence_match.group(1)) if confidence_match else 0.0
-        confidence = round(max(0.00, min(1.00, confidence)), 2)  # Ensure it's between 0.00 and 1.00
-        
-        # If confidence is 0, try to extract it from the text
-        if confidence == 0.0:
-            confidence_alt_match = re.search(r'Confidence:?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
-            if confidence_alt_match:
-                confidence = float(confidence_alt_match.group(1))
-                confidence = round(max(0.00, min(1.00, confidence)), 2)
+        direction = text.split('Direction |||')[1].split('Magnitude |||')[0].strip()
+        magnitude = text.split('Magnitude |||')[1].split('Confidence |||')[0].strip()
+        confidence = float(text.split('Confidence |||')[1].strip())
         
         # Extract token usage and model information
         completion_tokens = llm_result.llm_output['token_usage']['completion_tokens']
         prompt_tokens = llm_result.llm_output['token_usage']['prompt_tokens']
+        model_name = llm_result.llm_output['model_name']
         
-        # Extract full model name including version
-        model_name = generation.message.response_metadata.get('model_name', 'Unknown')
+        # Extract and process logprobs
+        logprobs = generation.generation_info['logprobs']['content']
+        print(f"Raw logprobs: {logprobs}")  # Debug print
+        
+        logprob_cumsum = 0
+        for token in logprobs:
+            if isinstance(token, dict) and 'logprob' in token:
+                lp = token['logprob']
+                if isinstance(lp, (int, float)):
+                    logprob_cumsum += lp
+                elif lp == '-inf':
+                    logprob_cumsum += float('-inf')
+                else:
+                    print(f"Unexpected logprob value: {lp}")  # Debug print
+        
+        print(f"Calculated logprob_cumsum: {logprob_cumsum}")  # Debug print
         
         # Create the Year_CD_CVM column
         year_cd_cvm = f"{year}_{cd_cvm}"
@@ -196,9 +196,9 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
             'Confidence': confidence,
             'Completion Tokens': completion_tokens,
             'Prompt Tokens': prompt_tokens,
-            'Model Name': model_name
+            'Model Name': model_name,
+            'Logprob Cumsum': logprob_cumsum
         })
-    
     return pd.DataFrame(parsed_data)
 
 def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:

@@ -55,6 +55,9 @@ def upload_predictions(cd_cvm_list: List[int], n_years: Optional[int] = None):
         for column, dtype in processed_df.dtypes.items():
             if column != 'Year_CD_CVM':
                 sql_type = dtype_map.get(str(dtype), String)
+                # Handle the new Logprob Cumsum column
+                if column == 'Logprob Cumsum':
+                    sql_type = Float
                 columns.append(Column(column, sql_type))
         
         # Create the table object
