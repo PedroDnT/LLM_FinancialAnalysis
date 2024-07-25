@@ -1,23 +1,17 @@
-import os
-import json
-from typing import Dict, Any, List, Tuple, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableSequence
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+import openai
 import pandas as pd
-import numpy as np
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_community.callbacks import get_openai_callback
-from utils import *
-from unidecode import unidecode
 import re
-from functools import lru_cache
+import numpy as np
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Any, List
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from unidecode import unidecode
+from utils import get_financial_statements_batch, get_company_name_by_cd_cvm
 
-@lru_cache(maxsize=None)
-def get_financial_data(CD_CVM_list: Tuple[int, ...]) -> Dict[str, Any]:
-    """Fetches and returns financial data for the given CD_CVM list."""
-    income, balance, _ = get_financial_statements_batch(list(CD_CVM_list))
+def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
+    """Fetches and returns financial data for the given CD_CVM list without including CD_CVM in the return JSON keys as a dictionary."""
+    income, balance, _ = get_financial_statements_batch(CD_CVM_list)
     
     financial_data = {
         "income_statements": [],
@@ -29,9 +23,10 @@ def get_financial_data(CD_CVM_list: Tuple[int, ...]) -> Dict[str, Any]:
         balance_data = balance[code].to_dict(orient='records')
         
         # Decode the 'DS_CONTA' column
-        for data in (income_data, balance_data):
-            for item in data:
-                item['DS_CONTA'] = unidecode(item['DS_CONTA'])
+        for item in income_data:
+            item['DS_CONTA'] = unidecode(item['DS_CONTA'])
+        for item in balance_data:
+            item['DS_CONTA'] = unidecode(item['DS_CONTA'])
         
         financial_data["income_statements"].append(income_data)
         financial_data["balance_sheets"].append(balance_data)
@@ -50,46 +45,41 @@ def create_prompt_template() -> ChatPromptTemplate:
     5. Analyze both income statements and balance sheets in your prediction.
     6. Focus on predicting the 'Resultado Líquido das Operações Continuadas' (Net Income from Continuing Operations) as the main earnings metric.
     
-    Your response must follow this exact structure:
+    Your response must follow this exact structure, with each section on a new line:
 
-    Panel A ||| [Trend Analysis: Analyze relevant trends over at least the past five years,.]
-    Panel B ||| [Ratio Analysis: Calculate and analyze key financial ratios over at least the past five years, interpreting their implications for future earnings.]
-    Panel C ||| [Rationale: Summarize your analyses and explain your prediction reasoning concisely, considering the long-term trends and focusing on 'Resultado Líquido das Operações Continuadas'.]
+    Panel A ||| [Trend Analysis]
+    Panel B ||| [Ratio Analysis]
+    Panel C ||| [Rationale]
     Direction ||| [increase/decrease]
     Magnitude ||| [large/moderate/small]
     Confidence ||| [0.00 to 1.00]
 
     Additional guidelines:
-    - Be precise, focused and cocise in your explanations.
-    - For Magnitude, you must use exactly one of these words: large, moderate, or small. Do not skip this or use any other terms.
+    - Be precise, focused and concise in your explanations.
+    - For Magnitude, you must use exactly one of these words: large, moderate, or small.
     - For Confidence, provide a single number between 0.00 and 1.00.
-    - Do not include formulas or calculations in your response.
-    - Use '|||' as a delimiter between section headers and content.
-    - Ensure your analysis covers at least 5 years of historical data.
-    - Return responses in English.
-    - No need to define fomulas or calculations in your response. Just mention the ratio or the value by name.
-    - When referring to earnings, always use 'Resultado Líquido das Operaçes Continuadas' as the key metric, but call it just earnings.
+    - Do not include the Direction, Magnitude, or Confidence information in the Panel C section.
+    - Ensure each section is clearly separated by the '|||' delimiter.
+    - Do not skip any sections or change their order.
 
     Financial data: {financial_data}
     Target year: {target_year}
     """
     return ChatPromptTemplate.from_template(template)
 
-def get_financial_prediction(financial_data: Dict[str, Any], n_years: Optional[int] = None) -> Dict[int, Any]:
-    """
-    Calls the prompt template and returns the entire response in a dictionary for a given CD_CVM.
-    If n_years is not provided, it predicts for all available years with at least 5 years of historical data.
-    """
+def get_financial_prediction(financial_data: Dict[str, Any], n_years: int) -> Dict[int, Any]:
     try:
         print("Starting get_financial_prediction...")
 
-        available_years = sorted(set(int(year.split('-')[0]) for year in financial_data["income_statements"][0][0].keys() if year.startswith('20')))
+        available_years = sorted([int(year.split('-')[0]) for year in financial_data["income_statements"][0][0].keys() if year.startswith('20')])
         
-        if n_years is None:
-            target_years = [year for year in available_years if year - 5 in available_years]
-        else:
-            target_years = [year for year in reversed(available_years[-n_years:]) if year - 5 in available_years]
-            target_years.reverse()
+        target_years = []
+        for year in reversed(available_years[-n_years:]):
+            if year - 5 in available_years:
+                target_years.append(year)
+            else:
+                print(f"Skipping year {year} due to insufficient historical data.")
+        target_years.reverse()
         
         if not target_years:
             print("Not enough historical data for prediction. At least 5 years of data are required.")
@@ -97,24 +87,28 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: Optional[i
         
         print(f"Target years determined: {target_years}")
 
-        prompt_template = create_prompt_template()
+        prompts = []
+        for year in target_years:
+            prompt_template = create_prompt_template()
+            data_up_to = year - 1
+            data_from = min(year - 6, available_years[0])
+            filtered_financial_data = {
+                key: [
+                    [{k: v for k, v in item.items() if k == 'DS_CONTA' or (k.startswith('20') and data_from <= int(k.split('-')[0]) <= data_up_to)}
+                     for item in statement]
+                    for statement in value
+                ]
+                for key, value in financial_data.items()
+            }
+            prompt = prompt_template.format(financial_data=filtered_financial_data, target_year=year)
+            prompts.append(prompt)
+        
+        print("Prompts created.")
+
         openai_api = ChatOpenAI(model="gpt-4o", temperature=1)
         
-        predictions = {}
-        for year in target_years:
+        def process_prompt(prompt, year):
             try:
-                data_up_to = year - 1
-                data_from = year - 6
-                filtered_financial_data = {
-                    key: [
-                        [{k: v for k, v in item.items() if k == 'DS_CONTA' or (k.startswith('20') and data_from <= int(k.split('-')[0]) <= data_up_to)}
-                         for item in statement]
-                        for statement in value
-                    ]
-                    for key, value in financial_data.items()
-                }
-                prompt = prompt_template.format(financial_data=filtered_financial_data, target_year=year)
-                
                 print(f"Sending prompt for year {year}...")
                 response = openai_api.generate([
                     [
@@ -122,12 +116,24 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: Optional[i
                         {"role": "user", "content": prompt}
                     ]
                 ])
-                
                 print(f"Response from OpenAI API for year {year}: {response}")
-                predictions[year] = response
+                return year, response
             except Exception as e:
                 print(f"Error processing year {year}: {str(e)}")
+                return year, None
 
+        predictions = {}
+        with ThreadPoolExecutor(max_workers=len(prompts)) as executor:
+            future_to_year = {executor.submit(process_prompt, prompt, target_years[i]): target_years[i] for i, prompt in enumerate(prompts)}
+            for future in as_completed(future_to_year):
+                year = future_to_year[future]
+                try:
+                    result_year, response = future.result()
+                    if response is not None:
+                        predictions[result_year] = response
+                except Exception as e:
+                    print(f"Error processing future for year {year}: {str(e)}")
+        
         print("Predictions received.")
         return predictions
     except Exception as e:
@@ -136,12 +142,14 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: Optional[i
         print(f"First item in income_statements: {financial_data['income_statements'][0][0].keys()}")
         return {}
 
-def parse_financial_prediction(prediction_dict: Dict[int, Any]) -> pd.DataFrame:
+
+def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> pd.DataFrame:
     parsed_data = []
     for year, llm_result in prediction_dict.items():
+        # Extract the generation text
         generation = llm_result.generations[0][0]
         text = generation.text
-        
+
         # Extract panels and prediction using the new delimiter
         panels = re.split(r'Panel [A-C] \|\|\|', text)
         panel_a = panels[1].strip() if len(panels) > 1 else ''
@@ -149,33 +157,37 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any]) -> pd.DataFrame:
         panel_c = panels[3].strip() if len(panels) > 3 else ''
         
         # Extract direction, magnitude, and confidence
-        direction_match = re.search(r'Direction \|\|\| (\w+)', text, re.IGNORECASE)
+        direction_match = re.search(r'Direction\s*\|\|\|\s*(\w+)', text, re.IGNORECASE)
         direction = 1 if direction_match and 'increase' in direction_match.group(1).lower() else -1
         
-        magnitude_match = re.search(r'Magnitude \|\|\| (\w+)', text, re.IGNORECASE)
-        if magnitude_match:
-            magnitude = magnitude_match.group(1).lower()
-            if magnitude not in ['large', 'moderate', 'small']:
-                print(f"Warning: Unexpected magnitude value '{magnitude}' for year {year}. Setting to 'moderate'.")
-                magnitude = 'moderate'
-        else:
-            print(f"Warning: No magnitude found for year {year}. Setting to 'moderate'.")
-            magnitude = 'moderate'
+        magnitude_match = re.search(r'Magnitude\s*\|\|\|\s*(\w+)', text, re.IGNORECASE)
+        magnitude = magnitude_match.group(1).lower() if magnitude_match else 'moderate'
         
-        confidence_match = re.search(r'Confidence \|\|\| (\d+\.\d+)', text, re.IGNORECASE)
-        try:
-            confidence = float(confidence_match.group(1)) if confidence_match else 0.0
-            confidence = round(max(0.00, min(1.00, confidence)), 2)  # Ensure it's between 0.00 and 1.00
-        except (ValueError, AttributeError):
-            confidence = 0.0
+        confidence_match = re.search(r'Confidence\s*\|\|\|\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+        confidence = float(confidence_match.group(1)) if confidence_match else 0.0
+        confidence = round(max(0.00, min(1.00, confidence)), 2)  # Ensure it's between 0.00 and 1.00
+        
+        # If confidence is 0, try to extract it from the text
+        if confidence == 0.0:
+            confidence_alt_match = re.search(r'Confidence:?\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+            if confidence_alt_match:
+                confidence = float(confidence_alt_match.group(1))
+                confidence = round(max(0.00, min(1.00, confidence)), 2)
         
         # Extract token usage and model information
         completion_tokens = llm_result.llm_output['token_usage']['completion_tokens']
         prompt_tokens = llm_result.llm_output['token_usage']['prompt_tokens']
-        model_name = llm_result.llm_output['model_name']
+        
+        # Extract full model name including version
+        model_name = generation.message.response_metadata.get('model_name', 'Unknown')
+        
+        # Create the Year_CD_CVM column
+        year_cd_cvm = f"{year}_{cd_cvm}"
         
         parsed_data.append({
             'Year': year,
+            'CD_CVM': cd_cvm,
+            'Year_CD_CVM': year_cd_cvm,
             'Panel A': panel_a.replace('\n', ' '),
             'Panel B': panel_b.replace('\n', ' '),
             'Panel C': panel_c.replace('\n', ' '),
@@ -189,26 +201,46 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any]) -> pd.DataFrame:
     
     return pd.DataFrame(parsed_data)
 
-def get_financial_prediction_list(CD_CVM_list: List[int], n_years: Optional[int] = None) -> pd.DataFrame:
-    """Generates financial predictions for a list of CD_CVM codes and target years."""
+def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
+    """
+    Generates financial predictions for a list of CD_CVM codes and target years.
+    
+    Args:
+    CD_CVM_list (List[int]): List of CD_CVM codes to process.
+    n_years (int): Number of most recent years to predict for each CD_CVM code.
+    
+    Returns:
+    pd.DataFrame: A DataFrame containing predictions for all CD_CVM codes and target years.
+    """
     all_predictions = []
     
     for cd_cvm in CD_CVM_list:
         print(f"Processing CD_CVM: {cd_cvm}")
-        financial_data = get_financial_data((cd_cvm,))
+        financial_data = get_financial_data([cd_cvm])
         predictions = get_financial_prediction(financial_data, n_years)
         
         if predictions:
-            df = parse_financial_prediction(predictions)
+            df = parse_financial_prediction(predictions, cd_cvm)
             df['CD_CVM'] = cd_cvm
             all_predictions.append(df)
         else:
             print(f"No predictions generated for CD_CVM: {cd_cvm}")
     
-    return pd.concat(all_predictions, ignore_index=True) if all_predictions else pd.DataFrame()
+    if all_predictions:
+        return pd.concat(all_predictions, ignore_index=True)
+    else:
+        return pd.DataFrame()
 
 def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
-    """Adds an actual_earnings_direction column and a NAME column to the predictions DataFrame."""
+    """
+    Adds an actual_earnings_direction column and a NAME column to the predictions DataFrame.
+    
+    Args:
+    predictions_df (pd.DataFrame): DataFrame returned by get_financial_prediction_list
+    
+    Returns:
+    pd.DataFrame: Updated DataFrame with actual_earnings_direction and NAME columns
+    """
     def normalize_string(s):
         return unidecode(s).lower()
 
@@ -229,7 +261,7 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
         year = row['Year']
         
         try:
-            financial_data = get_financial_data((cd_cvm,))
+            financial_data = get_financial_data([cd_cvm])
             if not financial_data or 'income_statements' not in financial_data or not financial_data['income_statements']:
                 print(f"No financial data found for CD_CVM: {cd_cvm}")
                 return np.nan

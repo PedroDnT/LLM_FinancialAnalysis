@@ -1,5 +1,6 @@
 from call import get_financial_prediction_list, post_added_data
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Table, Column, String, Integer, Float, MetaData
+from sqlalchemy.dialects.postgresql import insert
 import pandas as pd
 import os
 from dotenv import load_dotenv
@@ -12,17 +13,9 @@ load_dotenv()
 db_connection_string = os.getenv('DB_CONNECTION_STRING')
 
 def upload_predictions(cd_cvm_list: List[int], n_years: Optional[int] = None):
-    """
-    Generate financial predictions and upload them to the database.
-    
-    Args:
-    cd_cvm_list (list): List of CVM codes.
-    n_years (int, optional): Number of years to predict. If None, predicts for all available years.
-    
-    Returns:
-    int: Number of predictions uploaded.
-    """
     try:
+        print(f"Starting upload_predictions for CD_CVM list: {cd_cvm_list}, n_years: {n_years}")
+        
         # Get predictions
         predictions_df = get_financial_prediction_list(cd_cvm_list, n_years)
         
@@ -30,26 +23,65 @@ def upload_predictions(cd_cvm_list: List[int], n_years: Optional[int] = None):
             print("No predictions generated.")
             return 0
         
+        print(f"Predictions generated. Shape: {predictions_df.shape}")
+        print(f"Columns: {predictions_df.columns}")
+        
         # Post added data
         processed_df = post_added_data(predictions_df)
+        
+        print(f"Processed data. Shape: {processed_df.shape}")
+        print(f"Columns: {processed_df.columns}")
+        
+        # Set Year_CD_CVM as index
+        processed_df['Year_CD_CVM'] = processed_df['Year'].astype(str) + '_' + processed_df['CD_CVM'].astype(str)
+        processed_df.set_index('Year_CD_CVM', inplace=True)
         
         # Create database connection
         engine = create_engine(db_connection_string)
         
-        # Upload to database
+        # Define table structure
+        metadata = MetaData()
         table_name = 'financial_predictions'
-        processed_df.to_sql(table_name, engine, if_exists='append', index=False)
         
-        num_uploaded = len(processed_df)
+        # Create a dictionary to map DataFrame dtypes to SQLAlchemy column types
+        dtype_map = {
+            'int64': Integer,
+            'float64': Float,
+            'object': String
+        }
+        
+        # Create table columns based on DataFrame structure
+        columns = [Column('Year_CD_CVM', String, primary_key=True)]
+        for column, dtype in processed_df.dtypes.items():
+            if column != 'Year_CD_CVM':
+                sql_type = dtype_map.get(str(dtype), String)
+                columns.append(Column(column, sql_type))
+        
+        # Create the table object
+        table = Table(table_name, metadata, *columns)
+        
+        # Create table if it doesn't exist
+        metadata.create_all(engine)
+        
+        # Convert DataFrame to list of dictionaries
+        data = processed_df.reset_index().to_dict(orient='records')
+        
+        # Perform upsert operation
+        with engine.connect() as conn:
+            stmt = insert(table).values(data)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['Year_CD_CVM'],
+                set_={c.key: c for c in stmt.excluded if c.key != 'Year_CD_CVM'}
+            )
+            result = conn.execute(stmt)
+            conn.commit()
+        
+        num_uploaded = len(data)
         print(f"Uploaded {num_uploaded} predictions to {table_name}")
         return num_uploaded
     
     except Exception as e:
         print(f"An error occurred during prediction upload: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return 0
-
-if __name__ == "__main__":
-    # Example usage
-    cd_cvm_list = [1234, 5678]  # Replace with actual CVM codes
-    uploaded_count = upload_predictions(cd_cvm_list)
-    print(f"Total predictions uploaded: {uploaded_count}")
