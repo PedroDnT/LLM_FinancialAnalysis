@@ -183,28 +183,67 @@ def calculate_metrics(df):
     for cd_cvm in unique_cd_cvm:
         subset = df[df['CD_CVM'] == cd_cvm]
         if not subset.empty:
+            # Filter out NaN and infinite values
+            subset = subset.replace([np.inf, -np.inf], np.nan).dropna(subset=['actual_earnings_direction', 'Prediction Direction'])
+            
             y_true = subset['actual_earnings_direction'].astype(int)  # Ensure y_true is int
             y_pred = subset['Prediction Direction'].astype(int)  # Ensure y_pred is int
-            name = subset['NAME'].iloc[0]  # Get the corresponding NAME
             
-            f1 = round(f1_score(y_true, y_pred, average='weighted'), 2)
-            accuracy = round(accuracy_score(y_true, y_pred), 2)
-            precision = round(precision_score(y_true, y_pred, average='weighted', zero_division=0), 2)
+            # Filter out invalid predictions
+            valid_indices = y_pred.isin([1, -1])
+            y_true = y_true[valid_indices]
+            y_pred = y_pred[valid_indices]
             
-            # Calculate weighted average of 'Average Logprob' weighted by 'Completion Tokens'
-            weighted_avg_logprob = round((subset['Average Logprob'] * subset['Completion Tokens']).sum() / subset['Completion Tokens'].sum(), 2)
-            
-            # Convert weighted average logprob to linear probability
-            linear_probability = round(np.exp(-weighted_avg_logprob)*100, 0)
-            
-            metrics.append({
-                'CD_CVM': cd_cvm,
-                'NAME': name,
-                'F1 Score': f1,
-                'Accuracy': accuracy,
-                'Precision': precision,
-                'Weighted Avg Logprob': weighted_avg_logprob,
-                'Linear Probability': linear_probability
-            })
+            if not y_true.empty and not y_pred.empty:
+                name = subset['NAME'].iloc[0]  # Get the corresponding NAME
+                
+                f1 = round(f1_score(y_true, y_pred, average='weighted'), 2)
+                accuracy = round(accuracy_score(y_true, y_pred), 2)
+                precision = round(precision_score(y_true, y_pred, average='weighted', zero_division=0), 2)
+                
+                # Calculate weighted average of 'Average Logprob' weighted by 'Completion Tokens'
+                weighted_avg_logprob = round((subset['Average Logprob'] * subset['Completion Tokens']).sum() / subset['Completion Tokens'].sum(), 2)
+                
+                # Calculate linear probability for each row and aggregate using log-sum-exp trick
+                log_linear_probabilities = -subset['Average Logprob']
+                aggregated_log_linear_probability = np.sum(log_linear_probabilities)
+                aggregated_linear_probability = round(np.exp(aggregated_log_linear_probability) * 100, 0)
+                
+                # Count the number of valid predictions
+                num_valid_predictions = valid_indices.sum()
+                
+                # Count the number of predictions for each direction
+                num_predictions_1 = (y_pred == 1).sum()
+                num_predictions_minus_1 = (y_pred == -1).sum()
+                
+                metrics.append({
+                    'CD_CVM': cd_cvm,
+                    'NAME': name,
+                    'F1 Score': f1,
+                    'Accuracy': accuracy,
+                    'Precision': precision,
+                    'Weighted Avg Logprob': weighted_avg_logprob,
+                    'Linear Probability': aggregated_linear_probability,
+                    'Valid Predictions': num_valid_predictions,  # New column
+                    'Predictions 1': num_predictions_1,  # New column
+                    'Predictions -1': num_predictions_minus_1  # New column
+                })
     
     return pd.DataFrame(metrics)
+
+def calculate_agg_metrics(metrics_df):
+    agg_metrics = {
+        'Metric': ['F1 Score', 'Accuracy', 'Precision'],
+        'Average': [
+            metrics_df['F1 Score'].mean(),
+            metrics_df['Accuracy'].mean(),
+            metrics_df['Precision'].mean()
+        ],
+        'Standard Deviation': [
+            metrics_df['F1 Score'].std(),
+            metrics_df['Accuracy'].std(),
+            metrics_df['Precision'].std()
+        ]
+    }
+    
+    return pd.DataFrame(agg_metrics)

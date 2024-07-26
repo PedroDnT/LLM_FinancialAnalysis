@@ -1,5 +1,5 @@
 from call import get_financial_prediction_list, post_added_data
-from sqlalchemy import create_engine, Table, Column, String, Integer, Float, MetaData
+from sqlalchemy import create_engine, Table, Column, String, Integer, Float, BigInteger, MetaData
 from sqlalchemy.dialects.postgresql import insert
 import pandas as pd
 import os
@@ -36,6 +36,9 @@ def upload_predictions(cd_cvm_list: List[int], n_years: Optional[int] = None):
         processed_df['Year_CD_CVM'] = processed_df['Year'].astype(str) + '_' + processed_df['CD_CVM'].astype(str)
         processed_df.set_index('Year_CD_CVM', inplace=True)
         
+        # Print data types of DataFrame columns
+        print(processed_df.dtypes)
+        
         # Create database connection
         engine = create_engine(db_connection_string)
         
@@ -55,9 +58,9 @@ def upload_predictions(cd_cvm_list: List[int], n_years: Optional[int] = None):
         for column, dtype in processed_df.dtypes.items():
             if column != 'Year_CD_CVM':
                 sql_type = dtype_map.get(str(dtype), String)
-                # Handle the new Logprob Cumsum column
-                if column == 'Logprob Cumsum':
-                    sql_type = Float
+                # Handle specific columns that need to be BIGINT
+                if column in ['Completion Tokens', 'Prompt Tokens']:
+                    sql_type = BigInteger
                 columns.append(Column(column, sql_type))
         
         # Create the table object
@@ -69,10 +72,14 @@ def upload_predictions(cd_cvm_list: List[int], n_years: Optional[int] = None):
         # Convert DataFrame to list of dictionaries
         data = processed_df.reset_index().to_dict(orient='records')
         
-        # Perform insert-ignore operation
+        # Perform insert-update operation
         with engine.connect() as conn:
             stmt = insert(table).values(data)
-            stmt = stmt.on_conflict_do_nothing(index_elements=['Year_CD_CVM'])
+            update_dict = {c.name: c for c in stmt.excluded if c.name != 'Year_CD_CVM'}
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['Year_CD_CVM'],
+                set_=update_dict
+            )
             result = conn.execute(stmt)
             conn.commit()
         
