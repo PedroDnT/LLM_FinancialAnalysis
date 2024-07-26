@@ -42,6 +42,10 @@ def get_financial_statements_batch(cd_cvm_list: List[str]) -> Tuple[Dict[str, pd
     income_statements = execute_query(cd_cvm_list, 'ist')
     balance_sheets = execute_query(cd_cvm_list, 'bs')
     cash_flows = execute_query(cd_cvm_list, 'cf')
+    # beforw returning remove doct entries with all 0 or 0.0 or Nan on all columns
+    income_statements = {cd_cvm: df.drop(columns=[col for col in df.columns if all(df[col] == 0) or all(df[col] == 0.0) or all(df[col].isna())]) for cd_cvm, df in income_statements.items()}
+    balance_sheets = {cd_cvm: df.drop(columns=[col for col in df.columns if all(df[col] == 0) or all(df[col] == 0.0) or all(df[col].isna())]) for cd_cvm, df in balance_sheets.items()}
+    cash_flows = {cd_cvm: df.drop(columns=[col for col in df.columns if all(df[col] == 0) or all(df[col] == 0.0) or all(df[col].isna())]) for cd_cvm, df in cash_flows.items()}
     return income_statements, balance_sheets, cash_flows
 
 # Create a connection pool
@@ -96,6 +100,8 @@ def execute_query(CD_CVM_list, table_name):
             df = pd.DataFrame(result, columns=columns)
             # Drop columns where all rows are None
             df = df.dropna(axis=1, how='all')
+            # Drop columns where all rowas are 0 or 0.0
+            df = df.drop(columns=[col for col in df.columns if all(df[col] == 0) or all(df[col] == 0.0)])
             # Group by CD_CVM
             return {cd_cvm: group.drop(['CD_CVM', 'CD_CONTA'], axis=1) for cd_cvm, group in df.groupby('CD_CVM')}
         except psycopg2.Error as error:

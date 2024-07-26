@@ -22,7 +22,14 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
         income_data = income[code].to_dict(orient='records')
         balance_data = balance[code].to_dict(orient='records')
         
-        # Decode the 'DS_CONTA' column
+        # Function to check if DS_CONTA is valid
+        def is_valid_ds_conta(item):
+            return isinstance(item.get('DS_CONTA'), str) and item['DS_CONTA'].strip() != ''
+
+        # Filter and decode the 'DS_CONTA' column
+        income_data = [item for item in income_data if is_valid_ds_conta(item)]
+        balance_data = [item for item in balance_data if is_valid_ds_conta(item)]
+        
         for item in income_data:
             item['DS_CONTA'] = unidecode(item['DS_CONTA'])
         for item in balance_data:
