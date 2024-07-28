@@ -8,6 +8,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from unidecode import unidecode
 from utils import get_financial_statements_batch, get_company_name_by_cd_cvm
+import pandas as pd
+import numpy as np
+from typing import Dict, Any
+import statistics
 
 def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     """Fetches and returns financial data for the given CD_CVM list without including CD_CVM in the return JSON keys as a dictionary."""
@@ -154,6 +158,27 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
         print(f"First item in income_statements: {financial_data['income_statements'][0][0].keys()}")
         return {}
 
+def calculate_confidence(logprobs):
+    if not logprobs:
+        return np.nan
+    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
+    avg_logprob = sum(flat_logprobs) / len(flat_logprobs)
+    return avg_logprob
+
+def calculate_median_logprob(logprobs):
+    if not logprobs:
+        return np.nan
+    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
+    median_logprob = statistics.median(flat_logprobs)
+    return median_logprob
+
+def calculate_std_logprob(logprobs):
+    if not logprobs:
+        return np.nan
+    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
+    std_logprob = statistics.stdev(flat_logprobs)
+    return std_logprob
+
 def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> pd.DataFrame:
     parsed_data = []
     for year, llm_result in prediction_dict.items():
@@ -186,10 +211,11 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
         
         # Extract and process logprobs
         logprobs = generation.generation_info['logprobs']['content']
+        logprob_values = [token_info['logprob'] for token_info in logprobs]
+        avg_logprob = calculate_confidence([logprob_values])
+        median_logprob = calculate_median_logprob([logprob_values])
+        std_logprob = calculate_std_logprob([logprob_values])
         
-        logprob_values = [item['logprob'] for item in logprobs if isinstance(item, dict) and 'logprob' in item]
-        average_logprob = np.mean(logprob_values)
-
         # Create the Year_CD_CVM column
         year_cd_cvm = f"{year}_{cd_cvm}"
         
@@ -206,7 +232,9 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
             'Completion Tokens': completion_tokens,
             'Prompt Tokens': prompt_tokens,
             'Model Name': model_name,
-            'Average Logprob': average_logprob, 
+            'Average Logprob': avg_logprob,  # Add the result of the logprob average calculation here
+            'Median Logprob': median_logprob,  # Add the result of the logprob median calculation here
+            'Std Logprob': std_logprob  # Add the result of the logprob standard deviation calculation here
         })
     
     return pd.DataFrame(parsed_data)

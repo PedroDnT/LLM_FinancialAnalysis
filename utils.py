@@ -155,7 +155,7 @@ def get_company_name_by_cd_cvm(cd_cvm):
             print("Transaction rolled back.")
             return None
   
-def get_financial_predictions() -> pd.DataFrame:
+def get_financial_predictions_table() -> pd.DataFrame:
     """Queries the financial_predictions table and returns all entries as a pandas DataFrame."""
     with get_connection() as conn:
         cursor = conn.cursor()
