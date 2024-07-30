@@ -12,6 +12,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Any
 import statistics
+import os
 
 def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     """Fetches and returns financial data for the given CD_CVM list without including CD_CVM in the return JSON keys as a dictionary."""
@@ -80,7 +81,7 @@ def create_prompt_template() -> ChatPromptTemplate:
     """
     return ChatPromptTemplate.from_template(template)
 
-def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None) -> Dict[int, Any]:
+def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None, llm_provider: str = "openai") -> Dict[int, Any]:
     try:
         print("Starting get_financial_prediction...")
 
@@ -121,18 +122,37 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
         
         print("Prompts created.")
 
-        openai_api = ChatOpenAI(model="gpt-4o", temperature=1)
+        if llm_provider == "openai":
+            openai_api = ChatOpenAI(model="gpt-4o", temperature=1)
+        elif llm_provider == "openrouter":
+            from openai import OpenAI
+            
+            client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=os.getenv("OPENROUTER_API_KEY"),
+            )
+        else:
+            raise ValueError("Invalid LLM provider. Choose 'openai' or 'openrouter'.")
         
         def process_prompt(prompt, year):
             try:
                 print(f"Sending prompt for year {year}...")
-                response = openai_api.generate([
-                    [
-                        {"role": "system", "content": "As a Brazilian experienced local equity research analyst, your task is to analyze the provided financial statements and and make estimates."},
-                        {"role": "user", "content": prompt}
-                    ]
-                ], logprobs=True)  # Add logprobs=True here
-                #print(f"Response from OpenAI API for year {year}: {response}")
+                if llm_provider == "openai":
+                    response = openai_api.generate([
+                        [
+                            {"role": "system", "content": "As a Brazilian experienced local equity research analyst, your task is to analyze the provided financial statements and and make estimates."},
+                            {"role": "user", "content": prompt}
+                        ]
+                    ], logprobs=True)
+                elif llm_provider == "openrouter":
+                    completion = client.chat.completions.create(
+                        model="anthropic/claude-3.5-sonnet",
+                        messages=[
+                            {"role": "system", "content": "As a Brazilian experienced local equity research analyst, your task is to analyze the provided financial statements and and make estimates."},
+                            {"role": "user", "content": prompt}
+                        ],
+                    )
+                    response = completion.model_dump()
                 return year, response
             except Exception as e:
                 print(f"Error processing year {year}: {str(e)}")
@@ -182,9 +202,28 @@ def calculate_std_logprob(logprobs):
 def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> pd.DataFrame:
     parsed_data = []
     for year, llm_result in prediction_dict.items():
-        # Extract the generation text
-        generation = llm_result.generations[0][0]
-        text = generation.text
+        # Check if the result is a string (OpenRouter) or an object (OpenAI)
+        if isinstance(llm_result, str):
+            text = llm_result
+            completion_tokens = None
+            prompt_tokens = None
+            model_name = "openrouter-model"
+            logprob_values = None
+        elif isinstance(llm_result, dict):  # OpenRouter response
+            text = llm_result['choices'][0]['message']['content']
+            completion_tokens = llm_result['usage']['completion_tokens']
+            prompt_tokens = llm_result['usage']['prompt_tokens']
+            model_name = llm_result['model']
+            logprob_values = None
+        else:
+            # Extract the generation text (OpenAI)
+            generation = llm_result.generations[0][0]
+            text = generation.text
+            completion_tokens = llm_result.llm_output['token_usage']['completion_tokens']
+            prompt_tokens = llm_result.llm_output['token_usage']['prompt_tokens']
+            model_name = llm_result.llm_output['model_name']
+            logprobs = generation.generation_info['logprobs']['content']
+            logprob_values = [token_info['logprob'] for token_info in logprobs]
 
         # Extract the panels
         panel_a = text.split('Panel A |||')[1].split('Panel B |||')[0].strip()
@@ -204,17 +243,10 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
             print(f"Warning: Could not convert confidence to float for year {year}. Using NaN.")
             confidence = np.nan
         
-        # Extract token usage and model information
-        completion_tokens = llm_result.llm_output['token_usage']['completion_tokens']
-        prompt_tokens = llm_result.llm_output['token_usage']['prompt_tokens']
-        model_name = llm_result.llm_output['model_name']
-        
-        # Extract and process logprobs
-        logprobs = generation.generation_info['logprobs']['content']
-        logprob_values = [token_info['logprob'] for token_info in logprobs]
-        avg_logprob = calculate_confidence([logprob_values])
-        median_logprob = calculate_median_logprob([logprob_values])
-        std_logprob = calculate_std_logprob([logprob_values])
+        # Calculate logprob metrics if available
+        avg_logprob = calculate_confidence([logprob_values]) if logprob_values else np.nan
+        median_logprob = calculate_median_logprob([logprob_values]) if logprob_values else np.nan
+        std_logprob = calculate_std_logprob([logprob_values]) if logprob_values else np.nan
         
         # Create the Year_CD_CVM column
         year_cd_cvm = f"{year}_{cd_cvm}"
@@ -232,20 +264,21 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
             'Completion Tokens': completion_tokens,
             'Prompt Tokens': prompt_tokens,
             'Model Name': model_name,
-            'Average Logprob': avg_logprob,  # Add the result of the logprob average calculation here
-            'Median Logprob': median_logprob,  # Add the result of the logprob median calculation here
-            'Std Logprob': std_logprob  # Add the result of the logprob standard deviation calculation here
+            'Average Logprob': avg_logprob,
+            'Median Logprob': median_logprob,
+            'Std Logprob': std_logprob
         })
     
     return pd.DataFrame(parsed_data)
 
-def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
+def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int, llm_provider: str = "openai") -> pd.DataFrame:
     """
     Generates financial predictions for a list of CD_CVM codes and target years.
     
     Args:
     CD_CVM_list (List[int]): List of CD_CVM codes to process.
     n_years (int): Number of most recent years to predict for each CD_CVM code.
+    llm_provider (str): The LLM provider to use. Either "openai" or "openrouter".
     
     Returns:
     pd.DataFrame: A DataFrame containing predictions for all CD_CVM codes and target years.
@@ -255,7 +288,7 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.Da
     for cd_cvm in CD_CVM_list:
         print(f"Processing CD_CVM: {cd_cvm}")
         financial_data = get_financial_data([cd_cvm])
-        predictions = get_financial_prediction(financial_data, n_years)
+        predictions = get_financial_prediction(financial_data, n_years, llm_provider)
         
         if predictions:
             df = parse_financial_prediction(predictions, cd_cvm)
@@ -265,7 +298,8 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.Da
             print(f"No predictions generated for CD_CVM: {cd_cvm}")
     
     if all_predictions:
-        return pd.concat(all_predictions, ignore_index=True)
+        combined_df = pd.concat(all_predictions, ignore_index=True)
+        return post_added_data(combined_df)
     else:
         return pd.DataFrame()
 
@@ -306,11 +340,6 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
             
             income_statement = financial_data['income_statements'][0]
             
-            #print(f"Debug: Income statement structure for CD_CVM {cd_cvm}:")
-            #print(f"Type: {type(income_statement)}")
-            #print(f"Number of items: {len(income_statement)}")
-            #print(f"Sample content: {income_statement[:2]}")
-            
             earnings_metrics = [
                 'Resultado Liquido das Operacoes Continuadas',
                 'Lucro/Prejuizo Consolidado do Periodo',
@@ -343,28 +372,22 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
             if current_year_earnings is None or previous_year_earnings is None:
                 print(f"Missing earnings data for CD_CVM: {cd_cvm}, Year: {year}")
                 return np.nan
-            
             try:
                 current_year_earnings = float(current_year_earnings)
                 previous_year_earnings = float(previous_year_earnings)
             except ValueError:
                 print(f"Error converting earnings to float for CD_CVM: {cd_cvm}, Year: {year}")
                 return np.nan
-            
             return 1 if current_year_earnings > previous_year_earnings else -1
         except Exception as e:
             print(f"Error processing CD_CVM: {cd_cvm}, Year: {year}. Error: {str(e)}")
             return np.nan
-    
     # Apply the function to each row
     predictions_df['actual_earnings_direction'] = predictions_df.apply(get_actual_direction, axis=1)
-    
     # Add the NAME column
     predictions_df['NAME'] = predictions_df['CD_CVM'].apply(get_company_name_by_cd_cvm)
-    
     # Strip markdown from Panel A, B, and C
     for panel in ['Panel A', 'Panel B', 'Panel C']:
         if panel in predictions_df.columns:
             predictions_df[panel] = predictions_df[panel].apply(strip_markdown)
-    
     return predictions_df

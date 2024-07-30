@@ -176,7 +176,7 @@ def get_financial_predictions_table() -> pd.DataFrame:
             print("Transaction rolled back.")
             return None
             
-def calculate_metrics(df):
+def calculate_metrics(df, llm_provider: str = "openai"):
     metrics = []
     unique_cd_cvm = df['CD_CVM'].unique()
     
