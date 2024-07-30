@@ -27,9 +27,11 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
         income_data = income[code].to_dict(orient='records')
         balance_data = balance[code].to_dict(orient='records')
         
-        # Function to check if DS_CONTA is valid
+        # Function to check if DS_CONTA is valid and not all values are 0 or 0.0
         def is_valid_ds_conta(item):
-            return isinstance(item.get('DS_CONTA'), str) and item['DS_CONTA'].strip() != ''
+            return (isinstance(item.get('DS_CONTA'), str) and 
+                    item['DS_CONTA'].strip() != '' and 
+                    not all(float(value) == 0 or float(value) == 0.0 for key, value in item.items() if key != 'DS_CONTA' and value is not None))
 
         # Filter and decode the 'DS_CONTA' column
         income_data = [item for item in income_data if is_valid_ds_conta(item)]
@@ -49,30 +51,6 @@ def create_prompt_template() -> ChatPromptTemplate:
     """Creates a prompt template for the financial prediction task."""
     template = """
     Analyze the provided financial data for the target year {target_year} and provide a concise prediction. Use the provided income statements and balance sheets data for your analysis.
-
-    Follow these guidelines step-by-step to ensure a detailed and accurate analysis:
-    Step 1: Review historical revenue and profit trends. Identify and explain significant changes and underlying factors.   
-    Step 2: Perform a ratio analysis focusing on key financial ratios, and explain their economic impact on the company's financial health. No need to define the formula, return the reasoning.
-    Step 3: Provide a rationale for your prediction based on observed financial data, trends and ratios.
-
-    Structure your response as follows, with each section on a new line:
-
-    Panel A ||| Step 1 content
-    Panel B ||| Step 2 content
-    Panel C ||| Step 3 content
-    Direction ||| [1/-1]
-    Magnitude ||| [large/moderate/small]
-    Confidence ||| [0.00 to 1.00]
-
-    Additional guidelines:
-    - Do not include any introductory text or pleasantries.
-    - Be precise, focused, and concise in your explanations.
-    - For Direction, use 1 for increase and -1 for decrease.
-    - For Magnitude, use one of these words: large, moderate, or small.
-    - For Confidence, provide a single number between 0.00 and 1.00.
-    - Do not include Direction, Magnitude, or Confidence in Panel C.
-    - Separate each section with the '|||' delimiter.
-    - Do not skip any sections or change their order.
 
     Financial data:
     Income Statements: {financial_data[income_statements]}
@@ -123,7 +101,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
         print("Prompts created.")
 
         if llm_provider == "openai":
-            openai_api = ChatOpenAI(model="gpt-4o", temperature=1)
+            openai_api = ChatOpenAI(model="gpt-4o-mini", temperature=1)
         elif llm_provider == "openrouter":
             from openai import OpenAI
             
@@ -140,7 +118,34 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
                 if llm_provider == "openai":
                     response = openai_api.generate([
                         [
-                            {"role": "system", "content": "As a Brazilian experienced local equity research analyst, your task is to analyze the provided financial statements and and make estimates on earnings using the financial statements."},
+                            {"role": "system", "content": """As a Brazilian experienced local equity research analyst, your task is to analyze the provided 
+                            financial statements and and make estimates on earnings using the financial statements.
+                            You will be provided with financial data {financial_data} for the past 6 years and a target year {target_year}.
+
+                            Follow these guidelines step-by-step to ensure a detailed and accurate analysis:
+                            Step 1 - Review historical revenue and profit trends and changes trough the years. Identify and explain significant changes and underlying factors and its economics impact.  
+                            Step 2 - Perform a ratio analysis focusing on key financial ratios, and explain their economic impact on the company's financial health. No need to define the formula, return the reasoning.
+                            Step 3 - Based on your previous analysis, observed financial data, trends and ratios and relevant topics, make an estimate of the company's earnings direction for the target and provide a brief rationale for your prediction based on your reasoning. 
+
+                            Structure your response as follows, with each section on a new line:
+
+                            Panel A ||| Step 1 content
+                            Panel B ||| Step 2 content
+                            Panel C ||| Step 4 content
+                            Direction ||| [1/-1]
+                            Magnitude ||| [large/moderate/small]
+                            Confidence ||| [0.00 to 1.00]
+
+                            Additional guidelines:
+                            - Do not include any introductory text or pleasantries.
+                            - Be precise, focused, and concise in your explanations.
+                            - For Direction, use 1 for increase and -1 for decrease.
+                            - For Magnitude, use one of these words: large, moderate, or small.
+                            - For Confidence, provide a single number between 0.00 and 1.00.
+                            - Do not include Direction, Magnitude, or Confidence in Panel C.
+                            - Separate each section with the '|||' delimiter.
+                            - Do not skip any sections or change their order.
+                            """},
                             {"role": "user", "content": prompt}
                         ]
                     ], logprobs=True)
