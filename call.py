@@ -140,7 +140,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
                 if llm_provider == "openai":
                     response = openai_api.generate([
                         [
-                            {"role": "system", "content": "As a Brazilian experienced local equity research analyst, your task is to analyze the provided financial statements and and make estimates."},
+                            {"role": "system", "content": "As a Brazilian experienced local equity research analyst, your task is to analyze the provided financial statements and and make estimates on earnings using the financial statements."},
                             {"role": "user", "content": prompt}
                         ]
                     ], logprobs=True)
@@ -151,6 +151,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
                             {"role": "system", "content": "As a Brazilian experienced local equity research analyst, your task is to analyze the provided financial statements and and make estimates."},
                             {"role": "user", "content": prompt}
                         ],
+                        temperature=1
                     )
                     response = completion.model_dump()
                 return year, response
