@@ -272,3 +272,41 @@ def calculate_agg_metrics(metrics_df):
     }
     
     return pd.DataFrame(agg_metrics)
+
+
+# retrieve from postgres the is table as pandas dataframe
+def get_ist_table():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = sql.SQL("""
+            SELECT *
+            FROM ist;
+        """)
+    try:
+        cursor.execute(query)
+        result = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        return pd.DataFrame(result, columns=columns)
+    except psycopg2.Error as error:
+        print(f"Error executing query: {error}")
+        conn.rollback()
+        print("Transaction rolled back.")
+        return None
+# retrieve from postgres the bs table as pandas dataframe
+def get_bs_table():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = sql.SQL("""
+            SELECT *
+            FROM bs;
+        """)
+    try:
+        cursor.execute(query)
+        result = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        return pd.DataFrame(result, columns=columns)
+    except psycopg2.Error as error:
+        print(f"Error executing query: {error}")
+        conn.rollback()
+        print("Transaction rolled back.")
+        return None

@@ -268,22 +268,11 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
     
     return pd.DataFrame(parsed_data)
 
-def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
-    """
-    Generates financial predictions for a list of CD_CVM codes and target years.
-    
-    Args:
-    CD_CVM_list (List[int]): List of CD_CVM codes to process.
-    n_years (int): Number of most recent years to predict for each CD_CVM code.
-    
-    Returns:
-    pd.DataFrame: A DataFrame containing predictions for all CD_CVM codes and target years.
-    """
+def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> Iterator[pd.DataFrame]:
     all_predictions = []
     
-    # Initialize the progress bar
     with tqdm(total=len(CD_CVM_list), desc="Processing CD_CVM codes") as pbar:
-        for cd_cvm in CD_CVM_list:
+        for i, cd_cvm in enumerate(CD_CVM_list, 1):
             print(f"Processing CD_CVM: {cd_cvm}")
             financial_data = get_financial_data([cd_cvm])
             
@@ -291,7 +280,7 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.Da
                 predictions = get_financial_prediction_with_retry(financial_data, n_years)
             except Exception as e:
                 print(f"Failed to get predictions for CD_CVM: {cd_cvm} after retries. Error: {str(e)}")
-                pbar.update(1)  # Update the progress bar even if there's an error
+                pbar.update(1)
                 continue
             
             if predictions:
@@ -301,13 +290,17 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.Da
             else:
                 print(f"No predictions generated for CD_CVM: {cd_cvm}")
             
-            pbar.update(1)  # Update the progress bar after processing each CD_CVM
+            pbar.update(1)
+            
+            if i % 5 == 0 or i == len(CD_CVM_list):
+                if all_predictions:
+                    combined_df = pd.concat(all_predictions, ignore_index=True)
+                    yield post_added_data(combined_df)
+                    all_predictions = []
     
     if all_predictions:
         combined_df = pd.concat(all_predictions, ignore_index=True)
-        return post_added_data(combined_df)
-    else:
-        return pd.DataFrame()
+        yield post_added_data(combined_df)
 
 def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
     """
