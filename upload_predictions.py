@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from typing import List, Optional
 from tqdm import tqdm
 import numpy as np
-
+import logging
 # Load environment variables
 load_dotenv()
 
