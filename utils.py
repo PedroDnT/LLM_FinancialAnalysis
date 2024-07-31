@@ -202,12 +202,11 @@ def calculate_metrics(df, llm_provider: str = "openai"):
                 precision = round(precision_score(y_true, y_pred, average='weighted', zero_division=0), 2)
                 
                 # Calculate weighted average of 'Average Logprob' weighted by 'Completion Tokens'
-                weighted_avg_logprob = round((subset['Average Logprob'] * subset['Completion Tokens']).sum() / subset['Completion Tokens'].sum(), 2)
+                weighted_logprob = round((subset['Median Logprob'] * subset['Completion Tokens']).sum() / subset['Completion Tokens'].sum(), 2)
                 
                 # Calculate linear probability for each row and aggregate using log-sum-exp trick
-                log_linear_probabilities = -subset['Average Logprob']
-                aggregated_log_linear_probability = np.sum(log_linear_probabilities)
-                aggregated_linear_probability = round(np.exp(aggregated_log_linear_probability) * 100, 0)
+                
+                aggregated_linear_probability = round(np.exp(weighted_logprob) * 100, 0)
                 
                 # Count the number of valid predictions
                 num_valid_predictions = valid_indices.sum()
@@ -215,34 +214,52 @@ def calculate_metrics(df, llm_provider: str = "openai"):
                 # Count the number of predictions for each direction
                 num_predictions_1 = (y_pred == 1).sum()
                 num_predictions_minus_1 = (y_pred == -1).sum()
-                
+
+                # calulate verage of confidence from table
+                confidence = subset['Confidence'].mean()
+
+                # Calculate the percentage of each magnitude
+                magnitude = subset['Magnitude'].value_counts(normalize=True) * 100
+
+                # Extract the percentages for each magnitude, defaulting to 0 if not present
+                large_percentage = round(magnitude.get('large', 0), 2)
+                moderate_percentage = round(magnitude.get('moderate', 0), 2)
+                small_percentage = round(magnitude.get('small', 0), 2)
+
+                # Append the metrics to the list
                 metrics.append({
                     'CD_CVM': cd_cvm,
                     'NAME': name,
                     'F1 Score': f1,
                     'Accuracy': accuracy,
                     'Precision': precision,
-                    'Weighted Avg Logprob': weighted_avg_logprob,
+                    'Weighted Avg Logprob': weighted_logprob,
                     'Linear Probability': aggregated_linear_probability,
+                    'Confidence': confidence,
                     'Valid Predictions': num_valid_predictions,  # New column
                     'Predictions 1': num_predictions_1,  # New column
-                    'Predictions -1': num_predictions_minus_1  # New column
+                    'Predictions -1': num_predictions_minus_1,  # New column
+                    'Large Magnitude %': large_percentage,  # New column
+                    'Moderate Magnitude %': moderate_percentage,  # New column
+                    'Small Magnitude %': small_percentage  # New column
                 })
     
     return pd.DataFrame(metrics)
 
 def calculate_agg_metrics(metrics_df):
     agg_metrics = {
-        'Metric': ['F1 Score', 'Accuracy', 'Precision'],
+        'Metric': ['F1 Score', 'Accuracy', 'Precision', 'Linear Probability'],
         'Average': [
             metrics_df['F1 Score'].mean(),
             metrics_df['Accuracy'].mean(),
-            metrics_df['Precision'].mean()
+            metrics_df['Precision'].mean(),
+            metrics_df['Linear Probability'].mean()
         ],
         'Standard Deviation': [
             metrics_df['F1 Score'].std(),
             metrics_df['Accuracy'].std(),
-            metrics_df['Precision'].std()
+            metrics_df['Precision'].std(),
+            metrics_df['Linear Probability'].std()
         ]
     }
     

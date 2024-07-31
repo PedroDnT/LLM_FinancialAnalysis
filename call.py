@@ -14,6 +14,13 @@ from typing import Dict, Any
 import statistics
 import os
 from openai import OpenAI
+import time
+from tenacity import retry, stop_after_attempt, wait_fixed
+
+# Constants for rate limiting
+TPM_LIMIT = 450000  # Tokens per minute
+BATCH_QUEUE_LIMIT = 1350000  # Batch queue limit in tokens
+ESTIMATED_TOKENS_PER_REQUEST = 1000  # Estimate of tokens per request
 
 def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     """Fetches and returns financial data for the given CD_CVM list without including CD_CVM in the return JSON keys as a dictionary."""
@@ -28,11 +35,11 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
         income_data = income[code].to_dict(orient='records')
         balance_data = balance[code].to_dict(orient='records')
         
-        # Function to check if DS_CONTA is valid and not all values are 0 or 0.0
+        # Function to check if DS_CONTA is valid and not all values are NaN, 0, or 0.0
         def is_valid_ds_conta(item):
             return (isinstance(item.get('DS_CONTA'), str) and 
                     item['DS_CONTA'].strip() != '' and 
-                    not all(float(value) == 0 or float(value) == 0.0 for key, value in item.items() if key != 'DS_CONTA' and value is not None))
+                    not all(pd.isna(value) or float(value) == 0 or float(value) == 0.0 for key, value in item.items() if key != 'DS_CONTA' and value is not None))
 
         # Filter and decode the 'DS_CONTA' column
         income_data = [item for item in income_data if is_valid_ds_conta(item)]
@@ -60,15 +67,28 @@ def create_prompt_template() -> ChatPromptTemplate:
     """
     return ChatPromptTemplate.from_template(template)
 
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+def get_financial_prediction_with_retry(financial_data: Dict[str, Any], n_years: int) -> Dict[int, Any]:
+    return get_financial_prediction(financial_data, n_years)
+
 def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None) -> Dict[int, Any]:
     try:
         print("Starting get_financial_prediction...")
+
+        # Debug print to check the structure of financial_data
+        #print(f"Financial data structure: {financial_data.keys()}")
+        if "income_statements" not in financial_data or not financial_data["income_statements"]:
+            print("No income statements found in financial data.")
+            return {}
+        if not financial_data["income_statements"][0]:
+            print("Income statements list is empty.")
+            return {}
 
         available_years = sorted([int(year.split('-')[0]) for year in financial_data["income_statements"][0][0].keys() if year.startswith('20')])
         
         target_years = []
         for year in reversed(available_years):
-            if year - 6 in available_years:
+            if year - 5 in available_years:
                 target_years.append(year)
             else:
                 print(f"Skipping year {year} due to insufficient historical data.")
@@ -79,19 +99,26 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
             return {}
         
         if n_years is not None:
-            target_years = target_years[-n_years:]
+            target_years = target_years[-4:]
         
         print(f"Target years determined: {target_years}")
 
+        # Function to check if DS_CONTA is valid and not all values are NaN, 0, or 0.0
+        def is_valid_ds_conta(item):
+            return (isinstance(item.get('DS_CONTA'), str) and 
+                    item['DS_CONTA'].strip() != '' and 
+                    not all(pd.isna(value) or float(value) == 0 or float(value) == 0.0 for key, value in item.items() if key != 'DS_CONTA' and value is not None))
+
         prompts = []
         for year in target_years:
+            
             prompt_template = create_prompt_template()
             data_up_to = year - 1
-            data_from = year - 6
+            data_from = year - 4
             filtered_financial_data = {
                 key: [
                     [{k: v for k, v in item.items() if k == 'DS_CONTA' or (k.startswith('20') and data_from <= int(k.split('-')[0]) <= data_up_to)}
-                     for item in statement]
+                     for item in statement if is_valid_ds_conta(item)]
                     for statement in value
                 ]
                 for key, value in financial_data.items()
@@ -108,35 +135,30 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
                 print(f"Sending prompt for year {year}...")
                 response = openai_api.generate([
                     [
-                        {"role": "system", "content": """As a Brazilian experienced local equity research analyst, your task is to analyze the provided 
-                        financial statements and and make estimates on earnings using the financial statements.
-                        You will be provided with financial data {financial_data} for the past 6 years and a target year {target_year}.
+                        {"role": "system", "content": """Analyze the provided financial statements and estimate earnings for the target year {target_year}.
+                        Use the past 6 years of financial data {financial_data}.
 
-                        Follow these guidelines step-by-step to ensure a detailed and accurate analysis:
-                        Step 1 - Review historical revenue and profit trends and changes trough the year. Identify and explain significant changes and underlying factors and its economics impact.  
-                        Step 2 - Perform a ratio analysis focusing on key financial ratios, and explain their economic impact on the company's financial health. No need to define the formula, return the reasoning.
-                        Step 3 - Based on your previous analysis, observed financial data, trends and ratios and relevant topics, make an estimate of the company's earnings direction for the target and provide a brief rationale for your prediction based on your reasoning. 
+                        Steps:
+                        1. Review historical revenue and profit trends.
+                        2. Perform a ratio analysis.
+                        3. Given tour analysys in previous steps, think step by step to gather the best estimate of earnings direction and provide rationale based on your analysis.
 
-                        Structure your response as follows, with each section on a new line:
-
-                        Panel A ||| Step 1 content
-                        Panel B ||| Step 2 content
-                        Panel C ||| Step 4 content
+                        Response format:
+                        Panel A ||| [text]
+                        Panel B ||| [text]
+                        Panel C ||| [text]
                         Direction ||| [1/-1]
                         Magnitude ||| [large/moderate/small]
                         Confidence ||| [0.00 to 1.00]
 
-                        Additional guidelines:
-                        - Do not include any introductory text or pleasantries.
-                        - Be precise, focused, and concise in your explanations.
-                        - For Direction, use 1 for increase and -1 for decrease.
-                        - For Magnitude, use one of these words: large, moderate, or small.
-                        - For Confidence, provide a single number between 0.00 and 1.00.
+                        Guidelines:
+                        - Be precise and concise.
+                        - Use 1 for increase, -1 for decrease.
+                        - Use large, moderate, or small for magnitude.
+                        - Provide a confidence score between 0.00 and 1.00.
                         - Do not include Direction, Magnitude, or Confidence in Panel C.
-                        - Separate each section with the '|||' delimiter.
-                        - Do not skip any sections or change their order.
-                        - Do not define any formula or ratios, just mention by name.
-                        - Do not include the orignal text languange in your response, you can just mention the translated namee of the metric or data.
+                        - Separate sections with '|||' delimiter.
+                        - Do not define any formula or ratios on response.
                         """},
                         {"role": "user", "content": prompt}
                     ]
@@ -162,8 +184,8 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
         return predictions
     except Exception as e:
         print(f"An error occurred in get_financial_prediction: {str(e)}")
-        print(f"Financial data structure: {financial_data.keys()}")
-        print(f"First item in income_statements: {financial_data['income_statements'][0][0].keys()}")
+        import traceback
+        traceback.print_exc()
         return {}
 
 def calculate_confidence(logprobs):
@@ -261,7 +283,12 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.Da
     for cd_cvm in CD_CVM_list:
         print(f"Processing CD_CVM: {cd_cvm}")
         financial_data = get_financial_data([cd_cvm])
-        predictions = get_financial_prediction(financial_data, n_years)
+        
+        try:
+            predictions = get_financial_prediction_with_retry(financial_data, n_years)
+        except Exception as e:
+            print(f"Failed to get predictions for CD_CVM: {cd_cvm} after retries. Error: {str(e)}")
+            continue
         
         if predictions:
             df = parse_financial_prediction(predictions, cd_cvm)
@@ -330,8 +357,8 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
                     break
             
             if earnings_row is None:
-                print(f"No suitable earnings metric found for CD_CVM: {cd_cvm}")
-                print(f"Available metrics: {[item['DS_CONTA'] for item in income_statement]}")
+                #print(f"No suitable earnings metric found for CD_CVM: {cd_cvm}")
+                #print(f"Available metrics: {[item['DS_CONTA'] for item in income_statement]}")
                 return np.nan
             
             print(f"Debug: Earnings row for CD_CVM {cd_cvm}: {earnings_row}")
@@ -339,8 +366,8 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
             current_year_earnings = earnings_row.get(f'{year}-12-31')
             previous_year_earnings = earnings_row.get(f'{year-1}-12-31')
             
-            print(f"Debug: Current year earnings ({year}): {current_year_earnings}")
-            print(f"Debug: Previous year earnings ({year-1}): {previous_year_earnings}")
+            #print(f"Debug: Current year earnings ({year}): {current_year_earnings}")
+            #print(f"Debug: Previous year earnings ({year-1}): {previous_year_earnings}")
             
             if current_year_earnings is None or previous_year_earnings is None:
                 print(f"Missing earnings data for CD_CVM: {cd_cvm}, Year: {year}")
