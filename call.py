@@ -13,6 +13,7 @@ import numpy as np
 from typing import Dict, Any
 import statistics
 import os
+from openai import OpenAI
 
 def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     """Fetches and returns financial data for the given CD_CVM list without including CD_CVM in the return JSON keys as a dictionary."""
@@ -59,7 +60,7 @@ def create_prompt_template() -> ChatPromptTemplate:
     """
     return ChatPromptTemplate.from_template(template)
 
-def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None, llm_provider: str = "openai") -> Dict[int, Any]:
+def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None) -> Dict[int, Any]:
     try:
         print("Starting get_financial_prediction...")
 
@@ -100,65 +101,46 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
         
         print("Prompts created.")
 
-        if llm_provider == "openai":
-            openai_api = ChatOpenAI(model="gpt-4o-mini", temperature=1)
-        elif llm_provider == "openrouter":
-            from openai import OpenAI
-            
-            client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=os.getenv("OPENROUTER_API_KEY"),
-            )
-        else:
-            raise ValueError("Invalid LLM provider. Choose 'openai' or 'openrouter'.")
+        openai_api = ChatOpenAI(model="gpt-4o-mini", temperature=1)
         
         def process_prompt(prompt, year):
             try:
                 print(f"Sending prompt for year {year}...")
-                if llm_provider == "openai":
-                    response = openai_api.generate([
-                        [
-                            {"role": "system", "content": """As a Brazilian experienced local equity research analyst, your task is to analyze the provided 
-                            financial statements and and make estimates on earnings using the financial statements.
-                            You will be provided with financial data {financial_data} for the past 6 years and a target year {target_year}.
+                response = openai_api.generate([
+                    [
+                        {"role": "system", "content": """As a Brazilian experienced local equity research analyst, your task is to analyze the provided 
+                        financial statements and and make estimates on earnings using the financial statements.
+                        You will be provided with financial data {financial_data} for the past 6 years and a target year {target_year}.
 
-                            Follow these guidelines step-by-step to ensure a detailed and accurate analysis:
-                            Step 1 - Review historical revenue and profit trends and changes trough the years. Identify and explain significant changes and underlying factors and its economics impact.  
-                            Step 2 - Perform a ratio analysis focusing on key financial ratios, and explain their economic impact on the company's financial health. No need to define the formula, return the reasoning.
-                            Step 3 - Based on your previous analysis, observed financial data, trends and ratios and relevant topics, make an estimate of the company's earnings direction for the target and provide a brief rationale for your prediction based on your reasoning. 
+                        Follow these guidelines step-by-step to ensure a detailed and accurate analysis:
+                        Step 1 - Review historical revenue and profit trends and changes trough the year. Identify and explain significant changes and underlying factors and its economics impact.  
+                        Step 2 - Perform a ratio analysis focusing on key financial ratios, and explain their economic impact on the company's financial health. No need to define the formula, return the reasoning.
+                        Step 3 - Based on your previous analysis, observed financial data, trends and ratios and relevant topics, make an estimate of the company's earnings direction for the target and provide a brief rationale for your prediction based on your reasoning. 
 
-                            Structure your response as follows, with each section on a new line:
+                        Structure your response as follows, with each section on a new line:
 
-                            Panel A ||| Step 1 content
-                            Panel B ||| Step 2 content
-                            Panel C ||| Step 4 content
-                            Direction ||| [1/-1]
-                            Magnitude ||| [large/moderate/small]
-                            Confidence ||| [0.00 to 1.00]
+                        Panel A ||| Step 1 content
+                        Panel B ||| Step 2 content
+                        Panel C ||| Step 4 content
+                        Direction ||| [1/-1]
+                        Magnitude ||| [large/moderate/small]
+                        Confidence ||| [0.00 to 1.00]
 
-                            Additional guidelines:
-                            - Do not include any introductory text or pleasantries.
-                            - Be precise, focused, and concise in your explanations.
-                            - For Direction, use 1 for increase and -1 for decrease.
-                            - For Magnitude, use one of these words: large, moderate, or small.
-                            - For Confidence, provide a single number between 0.00 and 1.00.
-                            - Do not include Direction, Magnitude, or Confidence in Panel C.
-                            - Separate each section with the '|||' delimiter.
-                            - Do not skip any sections or change their order.
-                            """},
-                            {"role": "user", "content": prompt}
-                        ]
-                    ], logprobs=True)
-                elif llm_provider == "openrouter":
-                    completion = client.chat.completions.create(
-                        model="anthropic/claude-3.5-sonnet",
-                        messages=[
-                            {"role": "system", "content": "As a Brazilian experienced local equity research analyst, your task is to analyze the provided financial statements and and make estimates."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=1
-                    )
-                    response = completion.model_dump()
+                        Additional guidelines:
+                        - Do not include any introductory text or pleasantries.
+                        - Be precise, focused, and concise in your explanations.
+                        - For Direction, use 1 for increase and -1 for decrease.
+                        - For Magnitude, use one of these words: large, moderate, or small.
+                        - For Confidence, provide a single number between 0.00 and 1.00.
+                        - Do not include Direction, Magnitude, or Confidence in Panel C.
+                        - Separate each section with the '|||' delimiter.
+                        - Do not skip any sections or change their order.
+                        - Do not define any formula or ratios, just mention by name.
+                        - Do not include the orignal text languange in your response, you can just mention the translated namee of the metric or data.
+                        """},
+                        {"role": "user", "content": prompt}
+                    ]
+                ], logprobs=True)
                 return year, response
             except Exception as e:
                 print(f"Error processing year {year}: {str(e)}")
@@ -208,28 +190,14 @@ def calculate_std_logprob(logprobs):
 def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> pd.DataFrame:
     parsed_data = []
     for year, llm_result in prediction_dict.items():
-        # Check if the result is a string (OpenRouter) or an object (OpenAI)
-        if isinstance(llm_result, str):
-            text = llm_result
-            completion_tokens = None
-            prompt_tokens = None
-            model_name = "openrouter-model"
-            logprob_values = None
-        elif isinstance(llm_result, dict):  # OpenRouter response
-            text = llm_result['choices'][0]['message']['content']
-            completion_tokens = llm_result['usage']['completion_tokens']
-            prompt_tokens = llm_result['usage']['prompt_tokens']
-            model_name = llm_result['model']
-            logprob_values = None
-        else:
-            # Extract the generation text (OpenAI)
-            generation = llm_result.generations[0][0]
-            text = generation.text
-            completion_tokens = llm_result.llm_output['token_usage']['completion_tokens']
-            prompt_tokens = llm_result.llm_output['token_usage']['prompt_tokens']
-            model_name = llm_result.llm_output['model_name']
-            logprobs = generation.generation_info['logprobs']['content']
-            logprob_values = [token_info['logprob'] for token_info in logprobs]
+        # Extract the generation text (OpenAI)
+        generation = llm_result.generations[0][0]
+        text = generation.text
+        completion_tokens = llm_result.llm_output['token_usage']['completion_tokens']
+        prompt_tokens = llm_result.llm_output['token_usage']['prompt_tokens']
+        model_name = llm_result.llm_output['model_name']
+        logprobs = generation.generation_info['logprobs']['content']
+        logprob_values = [token_info['logprob'] for token_info in logprobs]
 
         # Extract the panels
         panel_a = text.split('Panel A |||')[1].split('Panel B |||')[0].strip()
@@ -277,14 +245,13 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
     
     return pd.DataFrame(parsed_data)
 
-def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int, llm_provider: str = "openai") -> pd.DataFrame:
+def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
     """
     Generates financial predictions for a list of CD_CVM codes and target years.
     
     Args:
     CD_CVM_list (List[int]): List of CD_CVM codes to process.
     n_years (int): Number of most recent years to predict for each CD_CVM code.
-    llm_provider (str): The LLM provider to use. Either "openai" or "openrouter".
     
     Returns:
     pd.DataFrame: A DataFrame containing predictions for all CD_CVM codes and target years.
@@ -294,7 +261,7 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int, llm_prov
     for cd_cvm in CD_CVM_list:
         print(f"Processing CD_CVM: {cd_cvm}")
         financial_data = get_financial_data([cd_cvm])
-        predictions = get_financial_prediction(financial_data, n_years, llm_provider)
+        predictions = get_financial_prediction(financial_data, n_years)
         
         if predictions:
             df = parse_financial_prediction(predictions, cd_cvm)
