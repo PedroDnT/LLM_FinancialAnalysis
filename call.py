@@ -16,6 +16,7 @@ import os
 from openai import OpenAI
 import time
 from tenacity import retry, stop_after_attempt, wait_fixed
+from tqdm import tqdm  # Import tqdm for progress bar
 
 # Constants for rate limiting
 TPM_LIMIT = 450000  # Tokens per minute
@@ -101,7 +102,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
         if n_years is not None:
             target_years = target_years[-4:]
         
-        print(f"Target years determined: {target_years}")
+        #print(f"Target years determined: {target_years}")
 
         # Function to check if DS_CONTA is valid and not all values are NaN, 0, or 0.0
         def is_valid_ds_conta(item):
@@ -280,22 +281,27 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.Da
     """
     all_predictions = []
     
-    for cd_cvm in CD_CVM_list:
-        print(f"Processing CD_CVM: {cd_cvm}")
-        financial_data = get_financial_data([cd_cvm])
-        
-        try:
-            predictions = get_financial_prediction_with_retry(financial_data, n_years)
-        except Exception as e:
-            print(f"Failed to get predictions for CD_CVM: {cd_cvm} after retries. Error: {str(e)}")
-            continue
-        
-        if predictions:
-            df = parse_financial_prediction(predictions, cd_cvm)
-            df['CD_CVM'] = cd_cvm
-            all_predictions.append(df)
-        else:
-            print(f"No predictions generated for CD_CVM: {cd_cvm}")
+    # Initialize the progress bar
+    with tqdm(total=len(CD_CVM_list), desc="Processing CD_CVM codes") as pbar:
+        for cd_cvm in CD_CVM_list:
+            print(f"Processing CD_CVM: {cd_cvm}")
+            financial_data = get_financial_data([cd_cvm])
+            
+            try:
+                predictions = get_financial_prediction_with_retry(financial_data, n_years)
+            except Exception as e:
+                print(f"Failed to get predictions for CD_CVM: {cd_cvm} after retries. Error: {str(e)}")
+                pbar.update(1)  # Update the progress bar even if there's an error
+                continue
+            
+            if predictions:
+                df = parse_financial_prediction(predictions, cd_cvm)
+                df['CD_CVM'] = cd_cvm
+                all_predictions.append(df)
+            else:
+                print(f"No predictions generated for CD_CVM: {cd_cvm}")
+            
+            pbar.update(1)  # Update the progress bar after processing each CD_CVM
     
     if all_predictions:
         combined_df = pd.concat(all_predictions, ignore_index=True)
@@ -353,7 +359,7 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
                 normalized_ds_conta = normalize_string(item['DS_CONTA'])
                 if normalized_ds_conta in normalized_metrics:
                     earnings_row = item
-                    print(f"Using earnings metric: {item['DS_CONTA']}")
+                    #print(f"Using earnings metric: {item['DS_CONTA']}")
                     break
             
             if earnings_row is None:
@@ -361,7 +367,7 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
                 #print(f"Available metrics: {[item['DS_CONTA'] for item in income_statement]}")
                 return np.nan
             
-            print(f"Debug: Earnings row for CD_CVM {cd_cvm}: {earnings_row}")
+            #print(f"Debug: Earnings row for CD_CVM {cd_cvm}: {earnings_row}")
             
             current_year_earnings = earnings_row.get(f'{year}-12-31')
             previous_year_earnings = earnings_row.get(f'{year-1}-12-31')

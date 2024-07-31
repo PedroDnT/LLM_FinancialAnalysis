@@ -96,7 +96,7 @@ def execute_query(CD_CVM_list, table_name):
             cursor.execute(query, (CD_CVM_list,))
             columns = [desc[0] for desc in cursor.description]
             result = cursor.fetchall()
-            print(f"Successfully executed the SQL query on the table '{table_name}' for the following CVM codes: {CD_CVM_list}")
+            #print(f"Successfully executed the SQL query on the table '{table_name}' for the following CVM codes: {CD_CVM_list}")
             df = pd.DataFrame(result, columns=columns)
             # Drop columns where all rows are None
             df = df.dropna(axis=1, how='all')
@@ -122,7 +122,7 @@ def get_distinct_cd_cvm():
         try:
             cursor.execute(query)
             result = cursor.fetchall()
-            print(f"Query executed successfully. Retrieved {len(result)} distinct CD_CVM values.")
+            #print(f"Query executed successfully. Retrieved {len(result)} distinct CD_CVM values.")
             # Convert the result to a list of CD_CVM values
             cd_cvm_list = [row[0] for row in result]
             return cd_cvm_list
@@ -144,7 +144,7 @@ def get_company_name_by_cd_cvm(cd_cvm):
             cursor.execute(query, (cd_cvm,))
             result = cursor.fetchone()
             if result:
-                print(f"Query executed successfully. Retrieved company name: {result[0]}")
+                #print(f"Query executed successfully. Retrieved company name: {result[0]}")
                 return result[0]
             else:
                 print("No company found for CD_CVM:", cd_cvm)
@@ -168,7 +168,7 @@ def get_financial_predictions_table() -> pd.DataFrame:
             cursor.execute(query)
             result = cursor.fetchall()
             columns = [desc[0] for desc in cursor.description]  # Get column names
-            print(f"Query executed successfully. Retrieved {len(result)} entries from financial_predictions table.")
+            #print(f"Query executed successfully. Retrieved {len(result)} entries from financial_predictions table.")
             return pd.DataFrame(result, columns=columns)  # Convert to pandas DataFrame
         except psycopg2.Error as error:
             print(f"Error executing query: {error}")
@@ -186,6 +186,9 @@ def calculate_metrics(df, llm_provider: str = "openai"):
             # Filter out NaN and infinite values
             subset = subset.replace([np.inf, -np.inf], np.nan).dropna(subset=['actual_earnings_direction', 'Prediction Direction'])
             
+            # Clean the 'Prediction Direction' column
+            subset['Prediction Direction'] = subset['Prediction Direction'].apply(lambda x: int(x.strip('[]')) if isinstance(x, str) else x)
+
             y_true = subset['actual_earnings_direction'].astype(int)  # Ensure y_true is int
             y_pred = subset['Prediction Direction'].astype(int)  # Ensure y_pred is int
             
@@ -225,7 +228,10 @@ def calculate_metrics(df, llm_provider: str = "openai"):
                 large_percentage = round(magnitude.get('large', 0), 2)
                 moderate_percentage = round(magnitude.get('moderate', 0), 2)
                 small_percentage = round(magnitude.get('small', 0), 2)
-
+                
+                # coutn actual earnings direction equals to 1
+                actual_earnings_1 = (y_true == 1).sum()
+                actual_earnings_minus_1 = (y_true == -1).sum()
                 # Append the metrics to the list
                 metrics.append({
                     'CD_CVM': cd_cvm,
@@ -238,7 +244,9 @@ def calculate_metrics(df, llm_provider: str = "openai"):
                     'Confidence': confidence,
                     'Valid Predictions': num_valid_predictions,  # New column
                     'Predictions 1': num_predictions_1,  # New column
+                    'Actual Earnings 1': actual_earnings_1,  # New column
                     'Predictions -1': num_predictions_minus_1,  # New column
+                    'Actual Earnings -1': actual_earnings_minus_1,  # New column
                     'Large Magnitude %': large_percentage,  # New column
                     'Moderate Magnitude %': moderate_percentage,  # New column
                     'Small Magnitude %': small_percentage  # New column
@@ -250,10 +258,10 @@ def calculate_agg_metrics(metrics_df):
     agg_metrics = {
         'Metric': ['F1 Score', 'Accuracy', 'Precision', 'Linear Probability'],
         'Average': [
-            metrics_df['F1 Score'].mean(),
-            metrics_df['Accuracy'].mean(),
-            metrics_df['Precision'].mean(),
-            metrics_df['Linear Probability'].mean()
+            (metrics_df['F1 Score'] * metrics_df['Valid Predictions']).sum() / metrics_df['Valid Predictions'].sum(),
+            (metrics_df['Accuracy'] * metrics_df['Valid Predictions']).sum() / metrics_df['Valid Predictions'].sum(),
+            (metrics_df['Precision'] * metrics_df['Valid Predictions']).sum() / metrics_df['Valid Predictions'].sum(),
+            (metrics_df['Linear Probability'] * metrics_df['Valid Predictions']).sum() / metrics_df['Valid Predictions'].sum()
         ],
         'Standard Deviation': [
             metrics_df['F1 Score'].std(),
