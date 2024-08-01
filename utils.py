@@ -60,55 +60,71 @@ def get_connection():
         pool.putconn(connection)
 
 def execute_query(CD_CVM_list, table_name):
+    results = {}
     with get_connection() as conn:
         cursor = conn.cursor()
-        query = sql.SQL("""
-            SELECT "CD_CVM", "CD_CONTA", "DS_CONTA", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2010-12-31' THEN "VL_CONTA" END) AS "2010-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2011-12-31' THEN "VL_CONTA" END) AS "2011-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2012-12-31' THEN "VL_CONTA" END) AS "2012-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2013-12-31' THEN "VL_CONTA" END) AS "2013-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2014-12-31' THEN "VL_CONTA" END) AS "2014-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2015-12-31' THEN "VL_CONTA" END) AS "2015-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2016-12-31' THEN "VL_CONTA" END) AS "2016-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2017-12-31' THEN "VL_CONTA" END) AS "2017-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2018-12-31' THEN "VL_CONTA" END) AS "2018-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2019-12-31' THEN "VL_CONTA" END) AS "2019-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2020-12-31' THEN "VL_CONTA" END) AS "2020-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2021-12-31' THEN "VL_CONTA" END) AS "2021-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2022-12-31' THEN "VL_CONTA" END) AS "2022-12-31", 
-                MAX(CASE WHEN "DT_FIM_EXERC" = '2023-12-31' THEN "VL_CONTA" END) AS "2023-12-31" 
-            FROM 
-                (
-                    SELECT 
-                        *
-                    FROM 
-                        {}
-                    WHERE 
-                        "CD_CVM" = ANY(%s) AND 
-                        "ST_CONTA_FIXA" = 'S'
-                ) AS filtered_data
-            GROUP BY "CD_CVM", "CD_CONTA", "DS_CONTA"
-            ORDER BY "CD_CONTA"
-        """).format(sql.Identifier(table_name))
-        
-        try:
-            cursor.execute(query, (CD_CVM_list,))
-            columns = [desc[0] for desc in cursor.description]
-            result = cursor.fetchall()
-            #print(f"Successfully executed the SQL query on the table '{table_name}' for the following CVM codes: {CD_CVM_list}")
-            df = pd.DataFrame(result, columns=columns)
-            # Drop columns where all rows are None
-            df = df.dropna(axis=1, how='all')
-            # Drop columns where all rowas are 0 or 0.0
-            df = df.drop(columns=[col for col in df.columns if all(df[col] == 0) or all(df[col] == 0.0)])
-            # Group by CD_CVM
-            return {cd_cvm: group.drop(['CD_CVM', 'CD_CONTA'], axis=1) for cd_cvm, group in df.groupby('CD_CVM')}
-        except psycopg2.Error as error:
-            print(f"Error executing query: {error}")
-            conn.rollback()
-            print("Transaction rolled back.")
-            return None
+        for cd_cvm in CD_CVM_list:
+            query = sql.SQL("""
+                SELECT "CD_CVM", "CD_CONTA", "DS_CONTA", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2010-12-31' THEN "VL_CONTA" END) AS "2010-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2011-12-31' THEN "VL_CONTA" END) AS "2011-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2012-12-31' THEN "VL_CONTA" END) AS "2012-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2013-12-31' THEN "VL_CONTA" END) AS "2013-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2014-12-31' THEN "VL_CONTA" END) AS "2014-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2015-12-31' THEN "VL_CONTA" END) AS "2015-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2016-12-31' THEN "VL_CONTA" END) AS "2016-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2017-12-31' THEN "VL_CONTA" END) AS "2017-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2018-12-31' THEN "VL_CONTA" END) AS "2018-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2019-12-31' THEN "VL_CONTA" END) AS "2019-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2020-12-31' THEN "VL_CONTA" END) AS "2020-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2021-12-31' THEN "VL_CONTA" END) AS "2021-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2022-12-31' THEN "VL_CONTA" END) AS "2022-12-31", 
+                    MAX(CASE WHEN "DT_FIM_EXERC" = '2023-12-31' THEN "VL_CONTA" END) AS "2023-12-31" 
+                FROM 
+                    (
+                        SELECT 
+                            *
+                        FROM 
+                            {}
+                        WHERE 
+                            "CD_CVM" = %s AND 
+                            "ST_CONTA_FIXA" = 'S'
+                    ) AS filtered_data
+                GROUP BY "CD_CVM", "CD_CONTA", "DS_CONTA"
+                ORDER BY "CD_CONTA"
+            """).format(sql.Identifier(table_name))
+            
+            try:
+                cursor.execute(query, (cd_cvm,))
+                columns = [desc[0] for desc in cursor.description]
+                result = cursor.fetchall()
+                df = pd.DataFrame(result, columns=columns)
+                
+                # Debug prints
+                #print("Columns in DataFrame:", df.columns)
+                #print("First few rows of DataFrame:\n", df.head())
+                
+                # Drop columns where all rows are None, NaN, 0, or 0.0
+                df = df.dropna(axis=1, how='all')
+                df = df.drop(columns=[col for col in df.columns if all(df[col] == 0) or all(df[col] == 0.0) or all(df[col].isna())])
+                
+                # Drop rows where all values are None, NaN, 0, or 0.0
+                df = df.dropna(axis=0, how='all')
+                df = df.loc[~(df == 0).all(axis=1)]
+                df = df.loc[~(df == 0.0).all(axis=1)]
+                
+                # Ensure 'CD_CVM' is present before grouping
+                if 'CD_CVM' not in df.columns:
+                    raise KeyError("'CD_CVM' column is missing from the DataFrame")
+                
+                # Group by CD_CVM
+                results[cd_cvm] = df.drop(['CD_CVM', 'CD_CONTA'], axis=1)
+            except (psycopg2.Error, KeyError) as error:
+                print(f"Error executing query for CD_CVM {cd_cvm}: {error}")
+                conn.rollback()
+                print("Transaction rolled back. Moving to the next CD_CVM.")
+                continue
+    return results
     
 def get_distinct_cd_cvm():
     with get_connection() as conn:
@@ -272,3 +288,23 @@ def calculate_agg_metrics(metrics_df):
     }
     
     return pd.DataFrame(agg_metrics)
+
+def get_company_reference_table() -> pd.DataFrame:
+    """Queries the company_reference table and returns all entries as a pandas DataFrame."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = sql.SQL("""
+            SELECT *
+            FROM company_reference;
+        """)
+
+        try:
+            cursor.execute(query)
+            result = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]  # Get column names
+            return pd.DataFrame(result, columns=columns)  # Convert to pandas DataFrame
+        except psycopg2.Error as error:
+            print(f"Error executing query: {error}")
+            conn.rollback()
+            print("Transaction rolled back.")
+            return None

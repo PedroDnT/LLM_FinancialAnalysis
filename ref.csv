@@ -1,0 +1,67 @@
+TICKER	NAMER	SECTOR	CD_CVM	 ISIN	
+ ABEV3 	 Ambev 	 Beverages 	23264	 BRABEVACNOR1 	
+ AZUL4 	 Azul 	 Airlines 	24112	 BRAZULACNPR4 	
+ B3SA3 	 B3 	 Financial Services 	21610	 BRB3SACNOR6 	
+ BBAS3 	 Banco do Brasil 	 Banking 	1023	 BRBBASACNOR3 	
+ BBDC3 	 Bradesco 	 Banking 	906	 BRBBDCACNOR2 	
+ BBDC4 	 Bradesco 	 Banking 	906	 BRBBDCACNPR9 	
+ BBSE3 	 BB Seguridade 	 Insurance 	23159	 BRBBSEACNOR5 	
+ BPAC11 	 Banco BTG Pactual 	 Banking 	22616	 BRBPACUNT010 	
+ BRAP4 	 Bradespar 	 Holding Company 	18724	 BRBRAPACNPR2 	
+ BRFS3 	 BRF 	 Food Processing 	16292	 BRBRFSACNOR8 	
+ BRKM5 	 Braskem 	 Chemicals 	4820	 BRBRKMACNPA4 	
+ CCRO3 	 CCR 	 Infrastructure 	18821	 BRCCROACNOR2 	
+ CIEL3 	 Cielo 	 Payment Systems 	21733	 BRCIELACNOR3 	
+ CMIG4 	 Cemig 	 Utilities 	2453	 BRCMIGACNPR3 	
+ COGN3 	 Cogna Educação 	 Education 	17973	 BRCOGNACNOR9 	
+ CPFE3 	 CPFL Energia 	 Utilities 	18660	 BRCPFEACNOR0 	
+ CSAN3 	 Cosan 	 Energy 	19836	 BRCSNACNOR0 	
+ CSNA3 	 CSN 	 Steel 	4030	 BRCSNAACNOR6 	
+ CVCB3 	 CVC Brasil 	 Travel 	23310	 BRCVCBACNOR2 	
+ CYRE3 	 Cyrela 	 Real Estate 	14460	 BRCYREACNOR7 	
+ ECOR3 	 EcoRodovias 	 Infrastructure 	19453	 BRECOACNOR8 	
+ EGIE3 	 Engie Brasil 	 Utilities 	13721	 BREGIEACNOR9 	
+ ELET3 	 Eletrobras 	 Utilities 	2437	 BRELETACNOR6 	
+ ELET6 	 Eletrobras 	 Utilities 	2437	 BRELETACNPB7 	
+ EMBR3 	 Embraer 	 Aerospace 	20087	 BREMBRACNOR4 	
+ ENBR3 	 EDP Brasil 	 Utilities 	14176	 BRENBRACNOR2 	
+ ENGI11 	 Energisa 	 Utilities 	15253	 BRENGIUNT018 	
+ EQTL3 	 Equatorial Energia 	 Utilities 	20010	 BREQTLACNOR0 	
+ EZTC3 	 EZ TEC 	 Real Estate 	21101	 BREZTCACNOR0 	
+ FLRY3 	 Fleury 	 Healthcare 	21881	 BRFLRIACNOR1 	
+ GGBR4 	 Gerdau 	 Steel 	3980	 BRGGBRACNPR0 	
+ GOAU4 	 Metalúrgica Gerdau 	 Steel 	3991	 BRGOAUACNPR4 	
+ GOLL4 	 Gol 	 Airlines 	19569	 BRGOLLACNPR4 	
+ HAPV3 	 Hapvida 	 Healthcare 	24392	 BRHAPVACNOR4 	
+ HYPE3 	 Hypera Pharma 	 Pharmaceuticals 	21431	 BRHYPEACNOR0 	
+ IGTA3 	 Iguatemi 	 Real Estate 	20494	 BRIGTAACNOR3 	
+ ITSA4 	 Itaúsa 	 Holding Company 	7617	 BRITSACNPR7 	
+ ITUB4 	 Itaú Unibanco 	 Banking 	19348	 BRITUBACNPR1 	
+ JBSS3 	 JBS 	 Food Processing 	20575	 BRJBSSACNOR8 	
+ KLBN11 	 Klabin 	 Paper & Pulp 	12653	 BRKLBNUNT027 	
+ LAME4 	 Lojas Americanas 	 Retail 	8087	 BRLAMEACNPR6 	
+ RENT3 	 Localiza 	 Car Rental 	19739	 BRRENTACNOR4 	
+ LREN3 	 Lojas Renner 	 Retail 	8133	 BRLRENACNOR1 	
+ MGLU3 	 Magazine Luiza 	 Retail 	22470	 BRMGLUACNOR2 	
+ MRFG3 	 Marfrig 	 Food Processing 	20788	 BRMRFGACNOR8 	
+ MRVE3 	 MRV 	 Real Estate 	20915	 BRMRVEACNOR2 	
+ MULT3 	 Multiplan 	 Real Estate 	20397	 BRMULTACNOR5 	
+ NTCO3 	 Natura &Co 	 Personal Care 	21334	 BRNTCOACNOR0 	
+ PCAR3 	 Pão de Açúcar 	 Retail 	14826	 BRPCARACNOR0 	
+ PETR3 	 Petrobras 	 Oil & Gas 	9512	 BRPETRACNOR9 	
+ PETR4 	 Petrobras 	 Oil & Gas 	9512	 BRPETRACNPR6 	
+ PRIO3 	 PetroRio 	 Oil & Gas 	15717	 BRPRIOACNOR4 	
+ RADL3 	 Raia Drogasil 	 Retail 	18660	 BRRADLACNOR0 	
+ RAIL3 	 Rumo 	 Logistics 	17450	 BRRAILACNOR9 	
+ SBSP3 	 Sabesp 	 Water Utilities 	14443	 BRSBSPACNOR5 	
+ SULA11 	 SulAmérica 	 Insurance 	21121	 BRSULACDAM18 	
+ SUZB3 	 Suzano 	 Paper & Pulp 	13986	 BRSUZBAACNOR0 	
+ TAEE11 	 Taesa 	 Utilities 	18376	 BRTAEEDAM013 	
+ TIMS3 	 TIM 	 Telecommunications 	17639	 BRTIMPACNOR1 	
+ TOTS3 	 Totvs 	 Technology 	19992	 BRTOTSACNOR8 	
+ UGPA3 	 Ultrapar 	 Fuel Distribution 	16748	 BRUGPAACNOR8 	
+ USIM5 	 Usiminas 	 Steel 	14320	 BRUSIMACNPA6 	
+ VALE3 	 Vale 	 Mining 	4170	 BRVALEACNOR0 	
+ VIVT3 	 Telefônica Brasil 	 Telecommunications 	17671	 BRVIVTACNOR1 	
+ WEGE3 	 WEG 	 Industrial Equipment 	5410	 BRWEGEACNOR0 	
+ YDUQ3 	 YDUQS 	 Education 	17973	 BRYDUQACNOR0 	

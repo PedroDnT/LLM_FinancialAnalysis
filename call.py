@@ -110,6 +110,20 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
                     item['DS_CONTA'].strip() != '' and 
                     not all(pd.isna(value) or float(value) == 0 or float(value) == 0.0 for key, value in item.items() if key != 'DS_CONTA' and value is not None))
 
+        # Function to check if year values are valid and not all values are NaN, 0, or 0.0
+        def is_valid_year_value(item):
+            return not all(pd.isna(value) or float(value) == 0 or float(value) == 0.0 for key, value in item.items() if key.startswith('20') and value is not None)
+
+        # Clean the columns of years
+        def clean_year_columns(financial_data):
+            for key, value in financial_data.items():
+                for statement in value:
+                    for item in statement:
+                        for year in list(item.keys()):
+                            if year.startswith('20') and not is_valid_year_value({year: item[year]}):
+                                del item[year]
+            return financial_data
+
         prompts = []
         for year in target_years:
             
