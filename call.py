@@ -68,10 +68,6 @@ def create_prompt_template() -> ChatPromptTemplate:
     """
     return ChatPromptTemplate.from_template(template)
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def get_financial_prediction_with_retry(financial_data: Dict[str, Any], n_years: int) -> Dict[int, Any]:
-    return get_financial_prediction(financial_data, n_years)
-
 def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None) -> Dict[int, Any]:
     try:
         print("Starting get_financial_prediction...")
@@ -203,20 +199,6 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
         traceback.print_exc()
         return {}
 
-def calculate_confidence(logprobs):
-    if not logprobs:
-        return np.nan
-    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
-    avg_logprob = sum(flat_logprobs) / len(flat_logprobs)
-    return avg_logprob
-
-def calculate_median_logprob(logprobs):
-    if not logprobs:
-        return np.nan
-    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
-    median_logprob = statistics.median(flat_logprobs)
-    return median_logprob
-
 def calculate_std_logprob(logprobs):
     if not logprobs:
         return np.nan
@@ -296,27 +278,23 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.Da
     all_predictions = []
     
     # Initialize the progress bar
-    with tqdm(total=len(CD_CVM_list), desc="Processing CD_CVM codes") as pbar:
-        for cd_cvm in CD_CVM_list:
-            print(f"Processing CD_CVM: {cd_cvm}")
-            financial_data = get_financial_data([cd_cvm])
+    for cd_cvm in CD_CVM_list:
+        print(f"Processing CD_CVM: {cd_cvm}")
+        financial_data = get_financial_data([cd_cvm])
+        
+        try:
+            predictions = get_financial_prediction(financial_data, n_years)
+        except Exception as e:
+            print(f"Failed to get predictions for CD_CVM: {cd_cvm}. Error: {str(e)}")
+            continue
+        
+        if predictions:
+            df = parse_financial_prediction(predictions, cd_cvm)
+            df['CD_CVM'] = cd_cvm
+            all_predictions.append(df)
+        else:
+            print(f"No predictions generated for CD_CVM: {cd_cvm}")
             
-            try:
-                predictions = get_financial_prediction_with_retry(financial_data, n_years)
-            except Exception as e:
-                print(f"Failed to get predictions for CD_CVM: {cd_cvm} after retries. Error: {str(e)}")
-                pbar.update(1)  # Update the progress bar even if there's an error
-                continue
-            
-            if predictions:
-                df = parse_financial_prediction(predictions, cd_cvm)
-                df['CD_CVM'] = cd_cvm
-                all_predictions.append(df)
-            else:
-                print(f"No predictions generated for CD_CVM: {cd_cvm}")
-            
-            pbar.update(1)  # Update the progress bar after processing each CD_CVM
-    
     if all_predictions:
         combined_df = pd.concat(all_predictions, ignore_index=True)
         return post_added_data(combined_df)
@@ -411,3 +389,21 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
         if panel in predictions_df.columns:
             predictions_df[panel] = predictions_df[panel].apply(strip_markdown)
     return predictions_df
+
+def calculate_confidence(logprobs):
+    if not logprobs:
+        return np.nan
+    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
+    avg_logprob = sum(flat_logprobs) / len(flat_logprobs)
+    return avg_logprob
+
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+def get_financial_prediction_with_retry(financial_data: Dict[str, Any], n_years: int) -> Dict[int, Any]:
+    return get_financial_prediction(financial_data, n_years)
+
+def calculate_median_logprob(logprobs):
+    if not logprobs:
+        return np.nan
+    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
+    median_logprob = statistics.median(flat_logprobs)
+    return median_logprob
