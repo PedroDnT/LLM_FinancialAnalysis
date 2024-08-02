@@ -290,6 +290,7 @@ def calculate_agg_metrics(metrics_df):
     return pd.DataFrame(agg_metrics)
 
 def get_company_reference_table() -> pd.DataFrame:
+
     """Queries the company_reference table and returns all entries as a pandas DataFrame."""
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -308,3 +309,17 @@ def get_company_reference_table() -> pd.DataFrame:
             conn.rollback()
             print("Transaction rolled back.")
             return None
+def get_sector_metrics(pred):
+    # Calculate average accuracy, precision, and F1 score weighted by Valid Predictions for each subset of Sector unique values
+    metrics_df = calculate_metrics(pred)
+    company_reference_df = get_company_reference_table()
+    metrics_df = metrics_df.merge(company_reference_df[['CD_CVM', 'SECTOR']], on='CD_CVM', how='left')
+    sector_metrics_df = metrics_df.groupby('SECTOR', group_keys=False).apply(
+        lambda x: pd.Series({
+            'Weighted Average Accuracy': f"{((x['Accuracy'] * x['Valid Predictions']).sum() / x['Valid Predictions'].sum()) * 100:.1f}%",
+            'Weighted Average Precision': f"{((x['Precision'] * x['Valid Predictions']).sum() / x['Valid Predictions'].sum()) * 100:.1f}%",
+            'Weighted Average F1 Score': round(((x['F1 Score'] * x['Valid Predictions']).sum() / x['Valid Predictions'].sum()), 2),
+            'Sum of Valid Predictions': x['Valid Predictions'].sum(),
+        })
+    ).reset_index()
+    return sector_metrics_df

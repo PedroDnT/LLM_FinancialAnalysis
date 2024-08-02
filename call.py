@@ -96,7 +96,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
         target_years.reverse()
         
         if not target_years:
-            print("Not enough historical data for prediction. At least 6 years of data are required.")
+            #print("Not enough historical data for prediction. At least 6 years of data are required.")
             return {}
         
         if n_years is not None:
@@ -141,7 +141,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
             prompt = prompt_template.format(financial_data=filtered_financial_data, target_year=year)
             prompts.append(prompt)
         
-        print("Prompts created.")
+        #print("Prompts created.")
 
         openai_api = ChatOpenAI(model="gpt-4o-mini", temperature=1)
         

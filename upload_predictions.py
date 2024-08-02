@@ -9,7 +9,7 @@ from tqdm import tqdm
 import numpy as np
 import psycopg2
 from psycopg2 import sql
-
+from utils import get_distinct_cd_cvm
 # Load environment variables
 load_dotenv()
 
@@ -223,3 +223,7 @@ def get_unique_cd_cvm_from_predictions():
             cursor.close()
         if conn:
             conn.close()
+
+if __name__ == "__main__":
+    disctint = get_distinct_cd_cvm()
+    upload_predictions(disctint)
