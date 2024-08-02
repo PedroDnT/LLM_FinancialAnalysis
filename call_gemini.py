@@ -6,6 +6,7 @@ from unidecode import unidecode
 from langchain_core.prompts import ChatPromptTemplate
 from utils import get_financial_statements_batch, get_company_name_by_cd_cvm
 import google.generativeai as genai
+import re
 
 def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     """Fetches and returns financial data for the given CD_CVM list without including CD_CVM in the return JSON keys as a dictionary."""
@@ -80,7 +81,7 @@ def gemini_pro_completion(prompt, model):
         print(f"Error calling Gemini API: {str(e)}")
         return None
 
-def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None) -> Dict[int, Any]:
+def get_financial_prediction_g(financial_data: Dict[str, Any], n_years: int = None) -> Dict[int, Any]:
     try:
         print("Starting get_financial_prediction...")
 
@@ -179,7 +180,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
         traceback.print_exc()
         return {}
 
-def parse_financial_prediction(prediction_dict: Dict[int, str]) -> pd.DataFrame:
+def parse_financial_prediction(prediction_dict: Dict[int, str], cd_cvm: int) -> pd.DataFrame:
     parsed_data = []
     for year, text in prediction_dict.items():
         # Extract the panels
@@ -201,6 +202,7 @@ def parse_financial_prediction(prediction_dict: Dict[int, str]) -> pd.DataFrame:
             confidence = np.nan
         
         parsed_data.append({
+            'CD_CVM': cd_cvm,
             'Year': year,
             'Panel A': panel_a.replace('\n', ' '),
             'Panel B': panel_b.replace('\n', ' '),
@@ -211,3 +213,129 @@ def parse_financial_prediction(prediction_dict: Dict[int, str]) -> pd.DataFrame:
         })
     
     return pd.DataFrame(parsed_data)
+
+def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Adds an actual_earnings_direction column and a NAME column to the predictions DataFrame.
+    
+    Args:
+    predictions_df (pd.DataFrame): DataFrame returned by get_financial_prediction_list
+    
+    Returns:
+    pd.DataFrame: Updated DataFrame with actual_earnings_direction and NAME columns
+    """
+    def normalize_string(s):
+        return unidecode(s).lower()
+
+    def strip_markdown(text):
+        # Remove bold and italic markers
+        text = re.sub(r'\*\*|__', '', text)
+        text = re.sub(r'\*|_', '', text)
+        # Remove links
+        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+        # Remove backticks
+        text = re.sub(r'`', '', text)
+        # Remove any remaining special characters
+        text = re.sub(r'[#>~\-=|]', '', text)
+        return text.strip()
+
+    def get_actual_direction(row):
+        cd_cvm = row['CD_CVM']
+        year = row['Year']
+        
+        try:
+            financial_data = get_financial_data([cd_cvm])
+            if not financial_data or 'income_statements' not in financial_data or not financial_data['income_statements']:
+                print(f"No financial data found for CD_CVM: {cd_cvm}")
+                return np.nan
+            
+            income_statement = financial_data['income_statements'][0]
+            
+            earnings_metrics = [
+                'Resultado Liquido das Operacoes Continuadas',
+                'Lucro/Prejuizo Consolidado do Periodo',
+                'Lucro/Prejuizo do Periodo'
+            ]
+            
+            normalized_metrics = [normalize_string(metric) for metric in earnings_metrics]
+            
+            earnings_row = None
+            for item in income_statement:
+                normalized_ds_conta = normalize_string(item['DS_CONTA'])
+                if normalized_ds_conta in normalized_metrics:
+                    earnings_row = item
+                    #print(f"Using earnings metric: {item['DS_CONTA']}")
+                    break
+            
+            if earnings_row is None:
+                #print(f"No suitable earnings metric found for CD_CVM: {cd_cvm}")
+                #print(f"Available metrics: {[item['DS_CONTA'] for item in income_statement]}")
+                return np.nan
+            
+            #print(f"Debug: Earnings row for CD_CVM {cd_cvm}: {earnings_row}")
+            
+            current_year_earnings = earnings_row.get(f'{year}-12-31')
+            previous_year_earnings = earnings_row.get(f'{year-1}-12-31')
+            
+            #print(f"Debug: Current year earnings ({year}): {current_year_earnings}")
+            #print(f"Debug: Previous year earnings ({year-1}): {previous_year_earnings}")
+            
+            if current_year_earnings is None or previous_year_earnings is None:
+                print(f"Missing earnings data for CD_CVM: {cd_cvm}, Year: {year}")
+                return np.nan
+            try:
+                current_year_earnings = float(current_year_earnings)
+                previous_year_earnings = float(previous_year_earnings)
+            except ValueError:
+                print(f"Error converting earnings to float for CD_CVM: {cd_cvm}, Year: {year}")
+                return np.nan
+            return 1 if current_year_earnings > previous_year_earnings else -1
+        except Exception as e:
+            print(f"Error processing CD_CVM: {cd_cvm}, Year: {year}. Error: {str(e)}")
+            return np.nan
+    # Apply the function to each row
+    predictions_df['actual_earnings_direction'] = predictions_df.apply(get_actual_direction, axis=1)
+    # Add the NAME column
+    predictions_df['NAME'] = predictions_df['CD_CVM'].apply(get_company_name_by_cd_cvm)
+    # Strip markdown from Panel A, B, and C
+    for panel in ['Panel A', 'Panel B', 'Panel C']:
+        if panel in predictions_df.columns:
+            predictions_df[panel] = predictions_df[panel].apply(strip_markdown)
+    return predictions_df
+
+def get_financial_prediction_list_g(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
+    """
+    Generates financial predictions for a list of CD_CVM codes and target years.
+    
+    Args:
+    CD_CVM_list (List[int]): List of CD_CVM codes to process.
+    n_years (int): Number of most recent years to predict for each CD_CVM code.
+    
+    Returns:
+    pd.DataFrame: A DataFrame containing predictions for all CD_CVM codes and target years.
+    """
+    all_predictions = []
+    
+    # Initialize the progress bar
+    for cd_cvm in CD_CVM_list:
+        print(f"Processing CD_CVM: {cd_cvm}")
+        financial_data = get_financial_data([cd_cvm])
+        
+        try:
+            predictions = get_financial_prediction_g(financial_data, n_years)
+        except Exception as e:
+            print(f"Failed to get predictions for CD_CVM: {cd_cvm}. Error: {str(e)}")
+            continue
+        
+        if predictions:
+            df = parse_financial_prediction(predictions, cd_cvm)
+            df['CD_CVM'] = cd_cvm
+            all_predictions.append(df)
+        else:
+            print(f"No predictions generated for CD_CVM: {cd_cvm}")
+            
+    if all_predictions:
+        combined_df = pd.concat(all_predictions, ignore_index=True)
+        return post_added_data(combined_df)
+    else:
+        return pd.DataFrame()

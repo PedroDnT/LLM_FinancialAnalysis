@@ -192,7 +192,7 @@ def get_financial_predictions_table() -> pd.DataFrame:
             print("Transaction rolled back.")
             return None
             
-def calculate_metrics(df, llm_provider: str = "openai"):
+def calculate_metrics(df):
     metrics = []
     unique_cd_cvm = df['CD_CVM'].unique()
     
@@ -309,6 +309,7 @@ def get_company_reference_table() -> pd.DataFrame:
             conn.rollback()
             print("Transaction rolled back.")
             return None
+
 def get_sector_metrics(pred):
     # Calculate average accuracy, precision, and F1 score weighted by Valid Predictions for each subset of Sector unique values
     metrics_df = calculate_metrics(pred)
@@ -323,3 +324,91 @@ def get_sector_metrics(pred):
         })
     ).reset_index()
     return sector_metrics_df
+
+def calculate_metrics_g(df):
+    metrics = []
+    unique_cd_cvm = df['CD_CVM'].unique()
+    
+    for cd_cvm in unique_cd_cvm:
+        subset = df[df['CD_CVM'] == cd_cvm]
+        if not subset.empty:
+            # Filter out NaN and infinite values
+            subset = subset.replace([np.inf, -np.inf], np.nan).dropna(subset=['actual_earnings_direction', 'Prediction Direction'])
+            
+            # Clean the 'Prediction Direction' column
+            subset['Prediction Direction'] = subset['Prediction Direction'].apply(lambda x: int(x.strip('[]')) if isinstance(x, str) else x)
+
+            y_true = subset['actual_earnings_direction'].astype(int)  # Ensure y_true is int
+            y_pred = subset['Prediction Direction'].astype(int)  # Ensure y_pred is int
+            
+            # Filter out invalid predictions
+            valid_indices = y_pred.isin([1, -1])
+            y_true = y_true[valid_indices]
+            y_pred = y_pred[valid_indices]
+            
+            if not y_true.empty and not y_pred.empty:
+                name = subset['NAME'].iloc[0]  # Get the corresponding NAME
+                
+                f1 = round(f1_score(y_true, y_pred, average='weighted'), 2)
+                accuracy = round(accuracy_score(y_true, y_pred), 2)
+                precision = round(precision_score(y_true, y_pred, average='weighted', zero_division=0), 2)
+                
+                
+                # Count the number of valid predictions
+                num_valid_predictions = valid_indices.sum()
+                
+                # Count the number of predictions for each direction
+                num_predictions_1 = (y_pred == 1).sum()
+                num_predictions_minus_1 = (y_pred == -1).sum()
+
+                # calulate verage of confidence from table
+                confidence = subset['Confidence'].mean()
+
+                # Calculate the percentage of each magnitude
+                magnitude = subset['Magnitude'].value_counts(normalize=True) * 100
+
+                # Extract the percentages for each magnitude, defaulting to 0 if not present
+                large_percentage = round(magnitude.get('large', 0), 2)
+                moderate_percentage = round(magnitude.get('moderate', 0), 2)
+                small_percentage = round(magnitude.get('small', 0), 2)
+                
+                # coutn actual earnings direction equals to 1
+                actual_earnings_1 = (y_true == 1).sum()
+                actual_earnings_minus_1 = (y_true == -1).sum()
+                # Append the metrics to the list
+                metrics.append({
+                    'CD_CVM': cd_cvm,
+                    'NAME': name,
+                    'F1 Score': f1,
+                    'Accuracy': accuracy,
+                    'Precision': precision,
+                    'Confidence': confidence,
+                    'Valid Predictions': num_valid_predictions,  # New column
+                    'Predictions 1': num_predictions_1,  # New column
+                    'Actual Earnings 1': actual_earnings_1,  # New column
+                    'Predictions -1': num_predictions_minus_1,  # New column
+                    'Actual Earnings -1': actual_earnings_minus_1,  # New column
+                    'Large Magnitude %': large_percentage,  # New column
+                    'Moderate Magnitude %': moderate_percentage,  # New column
+                    'Small Magnitude %': small_percentage  # New column
+                })
+    
+    return pd.DataFrame(metrics)
+
+
+def calculate_agg_metrics_g(metrics_df):
+    agg_metrics = {
+        'Metric': ['F1 Score', 'Accuracy', 'Precision', 'Linear Probability'],
+        'Average': [
+            (metrics_df['F1 Score'] * metrics_df['Valid Predictions']).sum() / metrics_df['Valid Predictions'].sum(),
+            (metrics_df['Accuracy'] * metrics_df['Valid Predictions']).sum() / metrics_df['Valid Predictions'].sum(),
+            (metrics_df['Precision'] * metrics_df['Valid Predictions']).sum() / metrics_df['Valid Predictions'].sum(),
+        ],
+        'Standard Deviation': [
+            metrics_df['F1 Score'].std(),
+            metrics_df['Accuracy'].std(),
+            metrics_df['Precision'].std(),
+        ]
+    }
+    
+    return pd.DataFrame(agg_metrics)
