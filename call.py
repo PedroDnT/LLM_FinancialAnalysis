@@ -56,10 +56,58 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     
     return financial_data
 
+system_prompt = """
+            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. Your task is to analyze financial statements, \
+            using the balance sheet and income statement, 
+            to predict future returns. Use your knowledge to identify the most relevant metrics and indices for this specific analysis. 
+            Follow step by step the instructions prompted by the user on crafting your answer, and return your answer in the format requested by the user.
+            Aditional informatio: 
+                - The data is in Portuguese and data follow the standard financial statements format by Comissao de Valores Mobiliarios (CVM). Answer in English. 
+                - No need to use full name or define calculations.
+            Response format:
+                Panel A: Trend Analysis
+                Identify and analyze the most significant trends in financial statements.
+                Focus on the lines and metrics that you consider most relevant to predict future earnings.
+                Provide a concise explanation of your analysis and potential impact on earnings for the target year.
+
+                Panel B: Index Analysis
+
+                Select and calculate the financial ratios that you consider most relevant for this analysis.
+                Interpret these ratios financial impact in the context of the company earnings for the target year.
+                Provide a concise explanation of your analysis and potential impact on earnings for the target year.
+
+                Panel C: Integrated Analysis and Summary
+
+                Combine insights from trend and index analyses.
+                Assess the company's overall financial position and its future prospects.
+                Provide an informed prediction of expected returns, considering all factors analyzed.
+
+                Response format:
+                Panel A ||| [text from Panel A analysis]
+                Panel B ||| [text from Panel B analysis]
+                Panel C ||| [text from Panel C analysis]
+                Direction ||| [1/-1]
+                Magnitude ||| [large/moderate/small]
+                Confidence ||| [0.00 to 1.00]
+
+                Guidelines:
+                - Be precise and concise.
+                - Use 1 for increase, -1 for decrease.
+                - Use large, moderate, or small for magnitude.
+                - Provide a confidence score between 0.00 and 1.00.
+                - Do not include Direction, Magnitude, or Confidence in Panel C.
+                - Separate sections with '|||' delimiter.
+                - Do not define any formula or ratios on response.
+
+
+    """
+
 def create_prompt_template() -> ChatPromptTemplate:
     """Creates a prompt template for the financial prediction task."""
     template = """
     Analyze the provided financial data for the target year {target_year} and provide a concise prediction. Use the provided income statements and balance sheets data for your analysis.
+    Perform a comprehensive analysis, divided into three dashboards:
+    
 
     Financial data:
     Income Statements: {financial_data[income_statements]}
@@ -146,31 +194,8 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = None
                 print(f"Sending prompt for year {year}...")
                 response = openai_api.generate([
                     [
-                        {"role": "system", "content": """Analyze the provided financial statements and estimate earnings for the target year {target_year}.
-                        Use the past 6 years of financial data {financial_data}.
+                        {"role": "system", "content": system_prompt},
 
-                        Steps:
-                        1. Review historical revenue and profit trends.
-                        2. Perform a ratio analysis.
-                        3. Given tour analysys in previous steps, think step by step to gather the best estimate of earnings direction and provide rationale based on your analysis.
-
-                        Response format:
-                        Panel A ||| [text]
-                        Panel B ||| [text]
-                        Panel C ||| [text]
-                        Direction ||| [1/-1]
-                        Magnitude ||| [large/moderate/small]
-                        Confidence ||| [0.00 to 1.00]
-
-                        Guidelines:
-                        - Be precise and concise.
-                        - Use 1 for increase, -1 for decrease.
-                        - Use large, moderate, or small for magnitude.
-                        - Provide a confidence score between 0.00 and 1.00.
-                        - Do not include Direction, Magnitude, or Confidence in Panel C.
-                        - Separate sections with '|||' delimiter.
-                        - Do not define any formula or ratios on response.
-                        """},
                         {"role": "user", "content": prompt}
                     ]
                 ], logprobs=True)
@@ -264,7 +289,7 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
     
     return pd.DataFrame(parsed_data)
 
-def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int) -> pd.DataFrame:
+def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int=None) -> pd.DataFrame:
     """
     Generates financial predictions for a list of CD_CVM codes and target years.
     
