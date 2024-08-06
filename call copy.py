@@ -103,8 +103,8 @@ system_prompt = """
 def create_prompt_template() -> ChatPromptTemplate:
     """Creates a prompt template for the financial prediction task."""
     template = """
-    Analyze the provided financial data for the target year {target_year} and provide a concise prediction. Use the provided income statements and balance sheets data for your analysis.
-    Perform a comprehensive analysis, divided into three dashboards:
+    Analyze the provided financial data for the target year {target_year} and provide a concise prediction. Use the provided income statements and 
+    balance sheets data for your analysis. Perform a comprehensive analysis, divided into three dashboards:
     
 
     Financial data:
@@ -137,15 +137,12 @@ def clean_year_columns(financial_data):
                         del item[year]
     return financial_data
 
-def process_prompt(prompt, year):
+def process_prompt_groq(prompt, year):
     try:
         print(f"Sending prompt for year {year}...")
-        response = openai_api.generate([
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ]
-        ], logprobs=True)
+        llm = ChatGroq(model="llama3-8b-8192", temperature=0.5)
+        messages = ["system", system_prompt, "human", prompt]
+        llm.invoke(messages)
         return year, response
     except Exception as e:
         print(f"Error processing year {year}: {str(e)}")
