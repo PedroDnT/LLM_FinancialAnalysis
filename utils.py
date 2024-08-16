@@ -395,7 +395,6 @@ def calculate_metrics_g(df):
     
     return pd.DataFrame(metrics)
 
-
 def calculate_agg_metrics_g(metrics_df):
     agg_metrics = {
         'Metric': ['F1 Score', 'Accuracy', 'Precision', 'Linear Probability'],

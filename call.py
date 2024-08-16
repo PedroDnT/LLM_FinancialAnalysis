@@ -17,6 +17,7 @@ from openai import OpenAI
 import time
 from tenacity import retry, stop_after_attempt, wait_fixed
 from tqdm import tqdm  # Import tqdm for progress bar
+import json
 
 # Constants for rate limiting
 TPM_LIMIT = 450000  # Tokens per minute
@@ -107,9 +108,7 @@ def create_prompt_template() -> ChatPromptTemplate:
     Perform a comprehensive analysis, divided into three dashboards:
     
 
-    Financial data:
-    Income Statements: {financial_data[income_statements]}
-    Balance Sheets: {financial_data[balance_sheets]}
+    Financial data: {financial_data}
     Target year: {target_year}
     """
     return ChatPromptTemplate.from_template(template)
@@ -137,7 +136,7 @@ def clean_year_columns(financial_data):
                         del item[year]
     return financial_data
 
-def process_prompt(prompt, year):
+def process_prompt(prompt, year, openai_api):
     try:
         print(f"Sending prompt for year {year}...")
         response = openai_api.generate([
@@ -154,6 +153,10 @@ def process_prompt(prompt, year):
 def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -> Dict[int, Any]:
     try:
         print("Starting get_financial_prediction...")
+
+        # Check if financial_data is a string (JSON) and parse it if necessary
+        if isinstance(financial_data, str):
+            financial_data = json.loads(financial_data)
 
         if "income_statements" not in financial_data or not financial_data["income_statements"]:
             print("No income statements found in financial data.")
@@ -186,10 +189,14 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -
                 ]
                 for key, value in financial_data.items()
             }
-            prompt = prompt_template.format(financial_data=filtered_financial_data, target_year=year)
+            
+            # Serialize filtered_financial_data to JSON
+            filtered_financial_data_json = json.dumps(filtered_financial_data)
+            
+            prompt = prompt_template.format(financial_data=filtered_financial_data_json, target_year=year)
             prompts.append(prompt)
 
-        openai_api = ChatOpenAI(model="gpt-4o-mini", temperature=1)
+        openai_api = ChatOpenAI(model="gpt-4o-2024-08-06", temperature=1)
         
         predictions = {}
         with ThreadPoolExecutor(max_workers=len(prompts)) as executor:
@@ -293,6 +300,10 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int=None) -> 
     for cd_cvm in CD_CVM_list:
         print(f"Processing CD_CVM: {cd_cvm}")
         financial_data = get_financial_data([cd_cvm])
+        
+        # If financial_data is a JSON string, parse it
+        if isinstance(financial_data, str):
+            financial_data = json.loads(financial_data)
         
         try:
             predictions = get_financial_prediction(financial_data, n_years)

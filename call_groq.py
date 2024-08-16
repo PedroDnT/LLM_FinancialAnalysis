@@ -1,4 +1,3 @@
-import openai
 import pandas as pd
 import re
 import numpy as np
@@ -19,6 +18,9 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from tqdm import tqdm  # Import tqdm for progress bar
 from langchain_groq import ChatGroq
 from ratelimit import limits, sleep_and_retry
+import json
+from langchain_core.messages import HumanMessage, SystemMessage
+from typing import Dict, List, Any
 
 # Constants for rate limiting
 TPM_LIMIT = 450000  # Tokens per minute
@@ -68,58 +70,65 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     return financial_data
 
 system_prompt = """
-            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. 
-            Your task is to analyze financial statements, using financial statements data, to predict future earnings direction. 
-            Identify the most relevant metrics and ratios for this analysis. Follow step by step the instructions, and return your answer in the format requested.
-            For each Panel, provide a concise explanation of your analysis and potential impact on earnings for the target year.
-            The data is in Portuguese and data follow the standard financial statements format by Comissao de Valores Mobiliarios (CVM). Answer in English. 
+            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. Your task is to analyze financial statements, \
+            using the balance sheet and income statement, to predict future returns. Use your knowledge to identify the most relevant metrics and ratios for this 
+            specific analysis. Think step by step and provide a comprehensive analysis guided by the panels.
             
-            Response format:
+            Analysis instructions:
                 Panel A: Trend Analysis
                 Identify and analyze the most significant trends in financial statements.
-                Focus on the lines and metrics most relevant to predict future earnings.
+                Focus on the lines and metrics that you consider most relevant to predict future earnings.
+                Provide a explanation of your analysis and its impact on earnings for the target year.
 
-                Panel B: Index Analysis
+                Panel B: Ratio Analysis
 
-                Perform a ratio analysis that you consider most relevant for future earnings. Provide a textual explanation of your analysis and intepretation 
-                of the implications of the ratios in the context of future earnings.
+                Select and calculate the financial ratios that you consider most relevant for this analysis.
+                Interpret these ratios financial impact in the context of the company earnings for the target year.
+                Provide a explanation of your analysis and its impact on earnings for the target year.
 
                 Panel C: Integrated Analysis and Summary
 
-                Combine insights from trend and ratio analyses. Assess the company's overall financial position and its future prospects to predict the direction of future earnings.
-
-                Response format:
-                Panel A ||| [text from Panel A analysis]
-                Panel B ||| [text from Panel B analysis]
-                Panel C ||| [text from Panel C analysis]
-                Direction ||| [1/-1]
-                Magnitude ||| [large/moderate/small]
-                Confidence ||| [0.00 to 1.00]
+                Combine insights from trend and index analyses.
+                Assess the company's overall financial position and its future prospects.Recall the previous analysis and 
+                provide an informed prediction of expected earnings directions, considering all factors analyzed.
                 
                 Additional instructions:
-                - Must format the response in the requested format including the ||| separator.
-                - Dont include introctory text or disclaimers. This apllies to all panels.
                 - Dont include titles or subtitles.This apllies to all panels.
-                - In the panels return only the text, not the title "Trend Analysis:", or any other text.
-                - Think step by step, and provide a comprehensive analysis.
-
+                - Think step by step,building the reasoning for your predictions and provide a comprehensive analysis.
+                - The data is in Portuguese and data follow the standard financial statements format by Comissao de Valores Mobiliarios (CVM). Answer in English. 
     """
+
+from langchain.prompts import ChatPromptTemplate
+from langchain.output_parsers import PydanticOutputParser
 
 def create_prompt_template() -> ChatPromptTemplate:
-    """Creates a prompt template for the financial prediction task."""
-    template = """
-    Analyze the provided financial data for the target year {target_year} and provide a concise prediction. Use the provided income statements and 
-    balance sheets data for your analysis. Perform a comprehensive analysis, divided into three dashboards:
+    parser = PydanticOutputParser(pydantic_object=FinancialAnalysis)
     
+    template = """
+    Analyze the provided financial data for the target year {target_year} perform a comprehensive analysis, divided into three panels, 
+    integrating all analysis into a single prediction and provide an summary of the analysis and prediction on earnings direction. 
+    Use the provided income statements and balance sheets data for your analysis. 
 
-    Financial data:
-    Income Statements: {financial_data[income_statements]}
-    Balance Sheets: {financial_data[balance_sheets]}
+    {format_instructions}
+
+    Financial data: {financial_data}
     Target year: {target_year}
     """
-    return ChatPromptTemplate.from_template(template)
+    
+    prompt = ChatPromptTemplate.from_template(template)
+    
+    return prompt.partial(format_instructions=parser.get_format_instructions())
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
+
+class FinancialAnalysis(BaseModel):
+    panel_a: str = Field(..., description="Trend analysis of financial statements and its impact on earnings")
+    panel_b: str = Field(..., description="Ratio analysis of financial ratios and its impact on earnings")
+    panel_c: str = Field(..., description="Integrated analysis and summary of predictions")
+    direction: Literal[1, -1] = Field(..., description="Predicted earnings direction (1 for increase, -1 for decrease)")
+    magnitude: Literal["large", "moderate", "small"] = Field(..., description="Predicted magnitude of change")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score between 0.00 and 1.00")
 
 def is_valid_ds_conta(item):
     return (isinstance(item.get('DS_CONTA'), str) and 
@@ -153,9 +162,14 @@ def process_prompt_groq(prompt, year):
         print(f"Error processing year {year}: {str(e)}")
         return year, None
 
-def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -> Dict[int, Any]:
+from langchain.output_parsers import PydanticOutputParser
+
+def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -> Dict[int, Dict[str, Any]]:
     try:
         print("Starting get_financial_prediction...")
+
+        if isinstance(financial_data, str):
+            financial_data = json.loads(financial_data)
 
         if "income_statements" not in financial_data or not financial_data["income_statements"]:
             print("No income statements found in financial data.")
@@ -175,7 +189,11 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -
         if n_years is not None:
             target_years = target_years[-n_years:]
 
-        prompts = []
+        model_name = "llama-3.1-70b-versatile"
+        chat = ChatGroq(model_name=model_name, temperature=0.5)
+        parser = PydanticOutputParser(pydantic_object=FinancialAnalysis)
+
+        predictions = {}
         for year in target_years:
             prompt_template = create_prompt_template()
             data_up_to = year - 1
@@ -188,21 +206,25 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -
                 ]
                 for key, value in financial_data.items()
             }
-            prompt = prompt_template.format(financial_data=filtered_financial_data, target_year=year)
-            prompts.append(prompt)
+            
+            filtered_financial_data_json = json.dumps(filtered_financial_data)
+            
+            human_message = HumanMessage(content=prompt_template.format(financial_data=filtered_financial_data_json, target_year=year))
+            system_message = SystemMessage(content=system_prompt)
 
-        predictions = {}
-        for i, prompt in enumerate(prompts):
-            year = target_years[i]
-            try:
-                result_year, response = rate_limited_api_call(prompt, year)
-                if response is not None:
-                    predictions[result_year] = response
-            except Exception as e:
-                print(f"Error processing year {year}: {str(e)}")
-
-            # Add a small delay between calls to smooth out the rate
-            time.sleep(60 / CALLS_PER_MINUTE)
+            messages = [system_message, human_message]
+            
+            response = chat.generate([messages])
+            
+            # Extract token usage from the LLMResult
+            token_usage = response.llm_output.get('token_usage', {})
+            
+            parsed_response = parser.parse(response.generations[0][0].text)
+            predictions[year] = {
+                'analysis': parsed_response,
+                'token_usage': token_usage,
+                'model': model_name
+            }
 
         print("Predictions received.")
         return predictions
@@ -219,54 +241,28 @@ def calculate_std_logprob(logprobs):
     std_logprob = statistics.stdev(flat_logprobs)
     return std_logprob
 
-def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> pd.DataFrame:
+def parse_financial_prediction(prediction_dict: Dict[int, Dict[str, Any]], cd_cvm: int) -> pd.DataFrame:
     parsed_data = []
-    for year, llm_result in prediction_dict.items():
-        # Extract the generation text (OpenAI)
-        text = prediction_dict[year].content
-        print(text) 
-        prompt_tokens = prediction_dict[year].response_metadata['token_usage']['prompt_tokens']
-        completion_tokens = prediction_dict[year].response_metadata['token_usage']['completion_tokens']
-        model_name = prediction_dict[year].response_metadata['model_name']
-
-        # Extract the panels
-        panel_a = text.split('Panel A |||')[1].split('Panel B |||')[0].strip()
-        panel_b = text.split('Panel B |||')[1].split('Panel C |||')[0].strip()
-        panel_c = text.split('Panel C |||')[1].split('Direction |||')[0].strip()
-        
-        # Extract direction, magnitude, and confidence
-        direction = text.split('Direction |||')[1].split('Magnitude |||')[0].strip()
-        magnitude = text.split('Magnitude |||')[1].split('Confidence |||')[0].strip()
-        confidence_str = text.split('Confidence |||')[1].strip()
-        
-        # Clean up confidence string and convert to float
-        confidence_str = confidence_str.split('\n')[0].strip('[]')
-        try:
-            confidence = float(confidence_str)
-        except ValueError:
-            print(f"Warning: Could not convert confidence to float for year {year}. Using NaN.")
-            confidence = np.nan
-        
-        # Calculate logprob metrics if available
-        #avg_logprob = calculate_confidence([logprob_values]) if logprob_values else np.nan
-        #median_logprob = calculate_median_logprob([logprob_values]) if logprob_values else np.nan
-        
-        # Create the Year_CD_CVM column
+    for year, prediction_data in prediction_dict.items():
+        analysis = prediction_data['analysis']
+        token_usage = prediction_data['token_usage']
+        model = prediction_data['model']
         year_cd_cvm = f"{year}_{cd_cvm}"
         
         parsed_data.append({
             'Year': year,
             'CD_CVM': cd_cvm,
             'Year_CD_CVM': year_cd_cvm,
-            'Panel A': panel_a.replace('\n', ' '),
-            'Panel B': panel_b.replace('\n', ' '),
-            'Panel C': panel_c.replace('\n', ' '),
-            'Prediction Direction': direction,
-            'Magnitude': magnitude,
-            'Confidence': confidence,
-            'Completion Tokens': completion_tokens,
-            'Prompt Tokens': prompt_tokens,
-            'Model Name': model_name,
+            'Panel A': analysis.panel_a.replace('\n', ' '),
+            'Panel B': analysis.panel_b.replace('\n', ' '),
+            'Panel C': analysis.panel_c.replace('\n', ' '),
+            'Prediction Direction': analysis.direction,
+            'Magnitude': analysis.magnitude,
+            'Confidence': analysis.confidence,
+            'prompt_tokens': token_usage['prompt_tokens'],
+            'completion_tokens': token_usage['completion_tokens'],
+            'total_tokens': token_usage['total_tokens'],
+            'model': model  # Add the model to the parsed data
         })
     
     return pd.DataFrame(parsed_data)
@@ -297,7 +293,6 @@ def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int=None) -> 
         
         if predictions:
             df = parse_financial_prediction(predictions, cd_cvm)
-            df['CD_CVM'] = cd_cvm
             all_predictions.append(df)
         else:
             print(f"No predictions generated for CD_CVM: {cd_cvm}")
@@ -397,20 +392,3 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
             predictions_df[panel] = predictions_df[panel].apply(strip_markdown)
     return predictions_df
 
-def calculate_confidence(logprobs):
-    if not logprobs:
-        return np.nan
-    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
-    avg_logprob = sum(flat_logprobs) / len(flat_logprobs)
-    return avg_logprob
-
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def get_financial_prediction_with_retry(financial_data: Dict[str, Any], n_years: int) -> Dict[int, Any]:
-    return get_financial_prediction(financial_data, n_years)
-
-def calculate_median_logprob(logprobs):
-    if not logprobs:
-        return np.nan
-    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
-    median_logprob = statistics.median(flat_logprobs)
-    return median_logprob
