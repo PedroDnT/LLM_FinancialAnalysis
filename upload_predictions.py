@@ -188,20 +188,7 @@ def create_table_if_not_exists(table_name):
         except Exception as e:
             print(f"Error creating table: {e}")
 
-def create_cia_table_if_not_exists():
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS cia (
-                    CD_CVM INTEGER PRIMARY KEY,
-                    NAME VARCHAR(255)
-                )
-            """)
-            conn.commit()
-            print("Table 'cia' created successfully or already exists.")
-        except Exception as e:
-            print(f"Error creating 'cia' table: {e}")
+
 
 def insert_predictions(predictions_df: pd.DataFrame, table_name: str):
     with get_connection() as conn:
@@ -284,7 +271,6 @@ def get_existing_values(table_name):
 def upload_predictions(cd_cvm_list, table_name='ibov', n_years=None, provider='openai'):
     create_table_if_not_exists(table_name)
     add_unique_constraint(table_name, f"{table_name}_year_cd_cvm_model_name_key", ["Year_CD_CVM", "Model Name"])
-    create_cia_table_if_not_exists()
 
     # Get existing values
     existing_values = get_existing_values(table_name)
