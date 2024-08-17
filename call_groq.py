@@ -154,7 +154,7 @@ def clean_year_columns(financial_data):
 def process_prompt_groq(prompt, year):
     try:
         print(f"Sending prompt for year {year}...")
-        llm = ChatGroq(model="llama-3.1-70b-versatile", temperature=0.5)
+        llm = ChatGroq(model="llama-3.1-70b-versatile", temperature=1)
         messages = ["system", system_prompt, "human", prompt]
         response=llm.invoke(messages)
         return year, response
@@ -259,15 +259,15 @@ def parse_financial_prediction(prediction_dict: Dict[int, Dict[str, Any]], cd_cv
             'Prediction Direction': analysis.direction,
             'Magnitude': analysis.magnitude,
             'Confidence': analysis.confidence,
-            'prompt_tokens': token_usage['prompt_tokens'],
-            'completion_tokens': token_usage['completion_tokens'],
-            'total_tokens': token_usage['total_tokens'],
-            'model': model  # Add the model to the parsed data
+            'Prompt Tokens': token_usage['prompt_tokens'],
+            'Completion Tokens': token_usage['completion_tokens'],
+            'Total Tokens': token_usage['total_tokens'],
+            'Model Name': model  # Add the model to the parsed data
         })
     
     return pd.DataFrame(parsed_data)
 
-def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int=None) -> pd.DataFrame:
+def get_financial_prediction_list_groq(CD_CVM_list: List[int], n_years: int=None) -> pd.DataFrame:
     """
     Generates financial predictions for a list of CD_CVM codes and target years.
     

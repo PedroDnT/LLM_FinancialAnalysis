@@ -273,12 +273,10 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
             'Prediction Direction': direction,
             'Magnitude': magnitude,
             'Confidence': confidence,
-            'Completion Tokens': completion_tokens,
             'Prompt Tokens': prompt_tokens,
+            'Completion Tokens': completion_tokens,
+            'Total Tokens': prompt_tokens + completion_tokens,
             'Model Name': model_name,
-            'Average Logprob': avg_logprob,
-            'Median Logprob': median_logprob,
-            'Std Logprob': std_logprob
         })
     
     return pd.DataFrame(parsed_data)
