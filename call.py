@@ -58,31 +58,25 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     return financial_data
 
 system_prompt = """
-            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. Your task is to analyze financial statements, \
-            using the balance sheet and income statement, 
-            to predict future returns. Use your knowledge to identify the most relevant metrics and indices for this specific analysis. 
-            Follow step by step the instructions prompted by the user on crafting your answer, and return your answer in the format requested by the user.
-            Aditional informatio: 
-                - The data is in Portuguese and data follow the standard financial statements format by Comissao de Valores Mobiliarios (CVM). Answer in English. 
+            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. Your task is to analyze financial statements, specifically using the balance sheet and income statement, to predict future returns. Use your expertise to identify the most relevant metrics and indices for this analysis and base your predictions solely on this data. Apply a chain of thought approach to carefully reason through each step of your analysis. Structure your response in the following three panels:
+
+            Panel A: Trend Analysis
+            Identify Key Trends: Begin by identifying the most significant trends in the financial statements, such as revenue growth, cost trends, or asset changes.
+            Focus on Impact: Analyze how these trends are likely to impact future earnings, considering both positive and negative implications.
+            Document Observations: Clearly document your observations and the rationale behind selecting these trends, linking them directly to potential earnings outcomes for the target year.
+            
+            Panel B: Ratio Analysis
+            Select Key Ratios: Choose and calculate the financial ratios that are most relevant for predicting future earnings, such as profit margins, return on equity (ROE), or current ratio.
+            Interpret Ratios: Carefully interpret these ratios in the context of the company’s overall financial health and potential for future earnings growth.
+            Explain the Significance: Provide a detailed explanation of how these ratios influence your earnings predictions, supported by your calculations and reasoning.
+            
+            Panel C: Integrated Analysis and Summary
+            Combine Insights: Integrate the insights from your trend and ratio analyses to form a comprehensive view of the company’s financial outlook.
+            Evaluate Overall Position: Assess the company’s overall financial position, considering both strengths and weaknesses.
+            Predict Future Returns: Offer an informed prediction of expected returns, fully considering the factors analyzed in the previous panels. Ensure your prediction is logical, coherent, and supported by the analysis provided.
+            Remember to follow the chain of thought process by logically connecting each observation and calculation to your final prediction. Provide your response in a clear, structured format as outlined below.
+
             Response format:
-                Panel A: Trend Analysis
-                Identify and analyze the most significant trends in financial statements.
-                Focus on the lines and metrics that you consider most relevant to predict future earnings.
-                Provide a concise explanation of your analysis and potential impact on earnings for the target year.
-
-                Panel B: Index Analysis
-
-                Select and calculate the financial ratios that you consider most relevant for this analysis.
-                Interpret these ratios financial impact in the context of the company earnings for the target year.
-                Provide a concise explanation of your analysis and potential impact on earnings for the target year.
-
-                Panel C: Integrated Analysis and Summary
-
-                Combine insights from trend and index analyses.
-                Assess the company's overall financial position and its future prospects.
-                Provide an informed prediction of expected returns, considering all factors analyzed.
-
-                Response format:
                 Panel A ||| [text from Panel A analysis]
                 Panel B ||| [text from Panel B analysis]
                 Panel C ||| [text from Panel C analysis]
@@ -91,6 +85,8 @@ system_prompt = """
                 Confidence ||| [0.00 to 1.00]
 
                 Guidelines:
+                - Do not include introductory text or title on Panels
+                - The data is in Portuguese and data follow the standard financial statements format by Comissao de Valores Mobiliarios (CVM). Answer in English. 
                 - Be precise and concise.
                 - Use 1 for increase, -1 for decrease.
                 - Use large, moderate, or small for magnitude.
@@ -104,7 +100,8 @@ system_prompt = """
 def create_prompt_template() -> ChatPromptTemplate:
     """Creates a prompt template for the financial prediction task."""
     template = """
-    Analyze the provided financial data for the target year {target_year} and provide a concise prediction. Use the provided income statements and balance sheets data for your analysis.
+    Analyze the provided financial data for the target year {target_year} and provide a concise prediction with rationale. 
+    Use the provided income statements and balance sheets data for your analysis.
     Perform a comprehensive analysis, divided into three dashboards:
     
 
@@ -218,12 +215,6 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -
         traceback.print_exc()
         return {}
 
-def calculate_std_logprob(logprobs):
-    if not logprobs:
-        return np.nan
-    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
-    std_logprob = statistics.stdev(flat_logprobs)
-    return std_logprob
 
 def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> pd.DataFrame:
     parsed_data = []
@@ -234,8 +225,6 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
         completion_tokens = llm_result.llm_output['token_usage']['completion_tokens']
         prompt_tokens = llm_result.llm_output['token_usage']['prompt_tokens']
         model_name = llm_result.llm_output['model_name']
-        logprobs = generation.generation_info['logprobs']['content']
-        logprob_values = [token_info['logprob'] for token_info in logprobs]
 
         # Extract the panels
         panel_a = text.split('Panel A |||')[1].split('Panel B |||')[0].strip()
@@ -255,12 +244,7 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
             print(f"Warning: Could not convert confidence to float for year {year}. Using NaN.")
             confidence = np.nan
         
-        # Calculate logprob metrics if available
-        avg_logprob = calculate_confidence([logprob_values]) if logprob_values else np.nan
-        median_logprob = calculate_median_logprob([logprob_values]) if logprob_values else np.nan
-        std_logprob = calculate_std_logprob([logprob_values]) if logprob_values else np.nan
         
-        # Create the Year_CD_CVM column
         year_cd_cvm = f"{year}_{cd_cvm}"
         
         parsed_data.append({
@@ -282,44 +266,34 @@ def parse_financial_prediction(prediction_dict: Dict[int, Any], cd_cvm: int) -> 
     return pd.DataFrame(parsed_data)
 
 def get_financial_prediction_list(CD_CVM_list: List[int], n_years: int=None) -> pd.DataFrame:
-    """
-    Generates financial predictions for a list of CD_CVM codes and target years.
-    
-    Args:
-    CD_CVM_list (List[int]): List of CD_CVM codes to process.
-    n_years (int): Number of most recent years to predict for each CD_CVM code.
-    
-    Returns:
-    pd.DataFrame: A DataFrame containing predictions for all CD_CVM codes and target years.
-    """
     all_predictions = []
     
-    # Initialize the progress bar
     for cd_cvm in CD_CVM_list:
         print(f"Processing CD_CVM: {cd_cvm}")
-        financial_data = get_financial_data([cd_cvm])
-        
-        # If financial_data is a JSON string, parse it
-        if isinstance(financial_data, str):
-            financial_data = json.loads(financial_data)
-        
         try:
-            predictions = get_financial_prediction(financial_data, n_years)
-        except Exception as e:
-            print(f"Failed to get predictions for CD_CVM: {cd_cvm}. Error: {str(e)}")
-            continue
-        
-        if predictions:
-            df = parse_financial_prediction(predictions, cd_cvm)
-            df['CD_CVM'] = cd_cvm
-            all_predictions.append(df)
-        else:
-            print(f"No predictions generated for CD_CVM: {cd_cvm}")
+            financial_data = get_financial_data([cd_cvm])
             
+            if not financial_data:
+                print(f"No financial data found for CD_CVM: {cd_cvm}. Skipping.")
+                continue
+            
+            predictions = get_financial_prediction(financial_data, n_years)
+            
+            if predictions:
+                df = parse_financial_prediction(predictions, cd_cvm)
+                all_predictions.append(df)
+            else:
+                print(f"No predictions generated for CD_CVM: {cd_cvm}")
+        except Exception as e:
+            print(f"Error processing CD_CVM: {cd_cvm}. Error: {str(e)}")
+            print(f"Skipping CD_CVM: {cd_cvm}")
+            continue
+    
     if all_predictions:
         combined_df = pd.concat(all_predictions, ignore_index=True)
         return post_added_data(combined_df)
     else:
+        print("No valid predictions were generated for any CD_CVM.")
         return pd.DataFrame()
 
 def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
@@ -411,20 +385,9 @@ def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
             predictions_df[panel] = predictions_df[panel].apply(strip_markdown)
     return predictions_df
 
-def calculate_confidence(logprobs):
-    if not logprobs:
-        return np.nan
-    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
-    avg_logprob = sum(flat_logprobs) / len(flat_logprobs)
-    return avg_logprob
+
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def get_financial_prediction_with_retry(financial_data: Dict[str, Any], n_years: int) -> Dict[int, Any]:
     return get_financial_prediction(financial_data, n_years)
 
-def calculate_median_logprob(logprobs):
-    if not logprobs:
-        return np.nan
-    flat_logprobs = [logprob for sublist in logprobs for logprob in sublist]
-    median_logprob = statistics.median(flat_logprobs)
-    return median_logprob

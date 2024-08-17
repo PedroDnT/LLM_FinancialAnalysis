@@ -21,6 +21,8 @@ from ratelimit import limits, sleep_and_retry
 import json
 from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Dict, List, Any
+from langchain.output_parsers import PydanticOutputParser
+from langchain_core.pydantic_v1 import BaseModel, Field, validator
 
 # Constants for rate limiting
 TPM_LIMIT = 450000  # Tokens per minute
@@ -28,13 +30,15 @@ BATCH_QUEUE_LIMIT = 1350000  # Batch queue limit in tokens
 ESTIMATED_TOKENS_PER_REQUEST = 1000  # Estimate of tokens per request
 
 # Define the rate limit
-CALLS_PER_MINUTE = 5
-TOKENS_PER_CALL = 1000  # Estimate, adjust based on your average usage
+CALLS_PER_MINUTE = 16  # 1000 RPM / 60 seconds
+CALLS_PER_DAY = 14000
+TOKENS_PER_MINUTE = 130000
+ESTIMATED_TOKENS_PER_CALL = 15000  # 10000 input + 5000 output
 
 @sleep_and_retry
 @limits(calls=CALLS_PER_MINUTE, period=60)
-def rate_limited_api_call(prompt, year):
-    return process_prompt_groq(prompt, year)
+def rate_limited_api_call(cd_cvm, financial_data, n_years):
+    return get_financial_prediction(financial_data, n_years)
 
 def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     """Fetches and returns financial data for the given CD_CVM list without including CD_CVM in the return JSON keys as a dictionary."""
@@ -46,6 +50,10 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     }
     
     for code in CD_CVM_list:
+        if code not in income or code not in balance:
+            print(f"Warning: Financial data not found for CD_CVM {code}. Skipping.")
+            continue
+        
         income_data = income[code].to_dict(orient='records')
         balance_data = balance[code].to_dict(orient='records')
         
@@ -70,32 +78,43 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     return financial_data
 
 system_prompt = """
-            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. Your task is to analyze financial statements, \
-            using the balance sheet and income statement, to predict future returns. Use your knowledge to identify the most relevant metrics and ratios for this 
-            specific analysis. Think step by step and provide a comprehensive analysis guided by the panels.
+            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. Your task is to analyze financial statements, specifically using the balance sheet and income statement, to predict future returns. Use your expertise to identify the most relevant metrics and indices for this analysis and base your predictions solely on this data. Apply a chain of thought approach to carefully reason through each step of your analysis. Structure your response in the following three panels:
+
+            Panel A: Trend Analysis
+            Identify Key Trends: Begin by identifying the most significant trends in the financial statements, such as revenue growth, cost trends, or asset changes.
+            Focus on Impact: Analyze how these trends are likely to impact future earnings, considering both positive and negative implications.
+            Document Observations: Clearly document your observations and the rationale behind selecting these trends, linking them directly to potential earnings outcomes for the target year.
             
-            Analysis instructions:
-                Panel A: Trend Analysis
-                Identify and analyze the most significant trends in financial statements.
-                Focus on the lines and metrics that you consider most relevant to predict future earnings.
-                Provide a explanation of your analysis and its impact on earnings for the target year.
+            Panel B: Ratio Analysis
+            Select Key Ratios: Choose and calculate the financial ratios that are most relevant for predicting future earnings, such as profit margins, return on equity (ROE), or current ratio.
+            Interpret Ratios: Carefully interpret these ratios in the context of the company’s overall financial health and potential for future earnings growth.
+            Explain the Significance: Provide a detailed explanation of how these ratios influence your earnings predictions, supported by your calculations and reasoning.
+            
+            Panel C: Integrated Analysis and Summary
+            Combine Insights: Integrate the insights from your trend and ratio analyses to form a comprehensive view of the company’s financial outlook.
+            Evaluate Overall Position: Assess the company’s overall financial position, considering both strengths and weaknesses.
+            Predict Future Returns: Offer an informed prediction of expected returns, fully considering the factors analyzed in the previous panels. Ensure your prediction is logical, coherent, and supported by the analysis provided.
+            Remember to follow the chain of thought process by logically connecting each observation and calculation to your final prediction. Provide your response in a clear, structured format as outlined below.
 
-                Panel B: Ratio Analysis
+            Response format:
+                Panel A ||| [text from Panel A analysis]
+                Panel B ||| [text from Panel B analysis]
+                Panel C ||| [text from Panel C analysis]
+                Direction ||| [1/-1]
+                Magnitude ||| [large/moderate/small]
+                Confidence ||| [0.00 to 1.00]
 
-                Select and calculate the financial ratios that you consider most relevant for this analysis.
-                Interpret these ratios financial impact in the context of the company earnings for the target year.
-                Provide a explanation of your analysis and its impact on earnings for the target year.
-
-                Panel C: Integrated Analysis and Summary
-
-                Combine insights from trend and index analyses.
-                Assess the company's overall financial position and its future prospects.Recall the previous analysis and 
-                provide an informed prediction of expected earnings directions, considering all factors analyzed.
-                
-                Additional instructions:
-                - Dont include titles or subtitles.This apllies to all panels.
-                - Think step by step,building the reasoning for your predictions and provide a comprehensive analysis.
+                Guidelines:
+                - Do not include introductory text or title on Panels
                 - The data is in Portuguese and data follow the standard financial statements format by Comissao de Valores Mobiliarios (CVM). Answer in English. 
+                - Be precise and concise.
+                - Use 1 for increase, -1 for decrease.
+                - Use large, moderate, or small for magnitude.
+                - Provide a confidence score between 0.00 and 1.00.
+                - Do not include Direction, Magnitude, or Confidence in Panel C.
+                - Separate sections with '|||' delimiter.
+                - Do not define any formula or ratios on response.
+                - No need to use full name or define calculations.
     """
 
 from langchain.prompts import ChatPromptTemplate
@@ -119,16 +138,31 @@ def create_prompt_template() -> ChatPromptTemplate:
     
     return prompt.partial(format_instructions=parser.get_format_instructions())
 
-from pydantic import BaseModel, Field
-from typing import Literal
-
 class FinancialAnalysis(BaseModel):
-    panel_a: str = Field(..., description="Trend analysis of financial statements and its impact on earnings")
-    panel_b: str = Field(..., description="Ratio analysis of financial ratios and its impact on earnings")
-    panel_c: str = Field(..., description="Integrated analysis and summary of predictions")
-    direction: Literal[1, -1] = Field(..., description="Predicted earnings direction (1 for increase, -1 for decrease)")
-    magnitude: Literal["large", "moderate", "small"] = Field(..., description="Predicted magnitude of change")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score between 0.00 and 1.00")
+    panel_a: str = Field(description="Trend analysis of financial statements and its impact on earnings")
+    panel_b: str = Field(description="Ratio analysis of financial ratios and its impact on earnings")
+    panel_c: str = Field(description="Integrated analysis and summary of predictions")
+    direction: int = Field(description="Predicted earnings direction (1 for increase, -1 for decrease)")
+    magnitude: str = Field(description="Predicted magnitude of change (large, moderate, or small)")
+    confidence: float = Field(description="Confidence score between 0.00 and 1.00")
+
+    @validator("direction")
+    def direction_must_be_valid(cls, v):
+        if v not in [1, -1]:
+            raise ValueError("Direction must be either 1 (increase) or -1 (decrease)")
+        return v
+
+    @validator("magnitude")
+    def magnitude_must_be_valid(cls, v):
+        if v not in ["large", "moderate", "small"]:
+            raise ValueError("Magnitude must be either 'large', 'moderate', or 'small'")
+        return v
+
+    @validator("confidence")
+    def confidence_must_be_between_0_and_1(cls, v):
+        if not 0 <= v <= 1:
+            raise ValueError("Confidence must be between 0 and 1")
+        return v
 
 def is_valid_ds_conta(item):
     return (isinstance(item.get('DS_CONTA'), str) and 
@@ -154,15 +188,13 @@ def clean_year_columns(financial_data):
 def process_prompt_groq(prompt, year):
     try:
         print(f"Sending prompt for year {year}...")
-        llm = ChatGroq(model="llama-3.1-70b-versatile", temperature=1)
+        llm = ChatGroq(model="Mixtral-8x7b-32768", temperature=1)
         messages = ["system", system_prompt, "human", prompt]
         response=llm.invoke(messages)
         return year, response
     except Exception as e:
         print(f"Error processing year {year}: {str(e)}")
         return year, None
-
-from langchain.output_parsers import PydanticOutputParser
 
 def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -> Dict[int, Dict[str, Any]]:
     try:
@@ -197,7 +229,7 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -
         for year in target_years:
             prompt_template = create_prompt_template()
             data_up_to = year - 1
-            data_from = year - 4
+            data_from = year - 5
             filtered_financial_data = {
                 key: [
                     [{k: v for k, v in item.items() if k == 'DS_CONTA' or (k.startswith('20') and data_from <= int(k.split('-')[0]) <= data_up_to)}
@@ -209,7 +241,11 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -
             
             filtered_financial_data_json = json.dumps(filtered_financial_data)
             
-            human_message = HumanMessage(content=prompt_template.format(financial_data=filtered_financial_data_json, target_year=year))
+            human_message = HumanMessage(content=prompt_template.format(
+                financial_data=filtered_financial_data_json, 
+                target_year=year,
+                format_instructions=parser.get_format_instructions()
+            ))
             system_message = SystemMessage(content=system_prompt)
 
             messages = [system_message, human_message]
@@ -279,28 +315,59 @@ def get_financial_prediction_list_groq(CD_CVM_list: List[int], n_years: int=None
     pd.DataFrame: A DataFrame containing predictions for all CD_CVM codes and target years.
     """
     all_predictions = []
-    
-    # Initialize the progress bar
+    daily_call_count = 0
+    daily_token_count = 0
+    start_time = time.time()
+
     for cd_cvm in CD_CVM_list:
         print(f"Processing CD_CVM: {cd_cvm}")
-        financial_data = get_financial_data([cd_cvm])
-        
         try:
-            predictions = get_financial_prediction(financial_data, n_years)
-        except Exception as e:
-            print(f"Failed to get predictions for CD_CVM: {cd_cvm}. Error: {str(e)}")
-            continue
-        
-        if predictions:
-            df = parse_financial_prediction(predictions, cd_cvm)
-            all_predictions.append(df)
-        else:
-            print(f"No predictions generated for CD_CVM: {cd_cvm}")
+            # Check daily limits
+            if daily_call_count >= CALLS_PER_DAY:
+                print("Daily call limit reached. Stopping processing.")
+                break
+            if daily_token_count + ESTIMATED_TOKENS_PER_CALL > TOKENS_PER_MINUTE * 1440:  # 1440 minutes in a day
+                print("Daily token limit reached. Stopping processing.")
+                break
+
+            financial_data = get_financial_data([cd_cvm])
             
+            if not financial_data:
+                print(f"No financial data found for CD_CVM: {cd_cvm}. Skipping.")
+                continue
+            
+            # Make the rate-limited API call
+            predictions = rate_limited_api_call(cd_cvm, financial_data, n_years)
+            
+            # Update counters
+            daily_call_count += 1
+            daily_token_count += ESTIMATED_TOKENS_PER_CALL
+
+            if predictions:
+                df = parse_financial_prediction(predictions, cd_cvm)
+                all_predictions.append(df)
+            else:
+                print(f"No predictions generated for CD_CVM: {cd_cvm}")
+
+            # Check if we need to pause for token limit
+            elapsed_time = time.time() - start_time
+            if elapsed_time < 60 and daily_token_count >= TOKENS_PER_MINUTE:
+                sleep_time = 60 - elapsed_time
+                print(f"Token limit reached. Sleeping for {sleep_time:.2f} seconds.")
+                time.sleep(sleep_time)
+                daily_token_count = 0
+                start_time = time.time()
+
+        except Exception as e:
+            print(f"Error processing CD_CVM: {cd_cvm}. Error: {str(e)}")
+            print(f"Skipping CD_CVM: {cd_cvm}")
+            continue
+    
     if all_predictions:
         combined_df = pd.concat(all_predictions, ignore_index=True)
         return post_added_data(combined_df)
     else:
+        print("No valid predictions were generated for any CD_CVM.")
         return pd.DataFrame()
 
 def post_added_data(predictions_df: pd.DataFrame) -> pd.DataFrame:
