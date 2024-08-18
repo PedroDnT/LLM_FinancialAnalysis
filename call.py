@@ -71,9 +71,8 @@ system_prompt = """
             Explain the Significance: Provide a detailed explanation of how these ratios influence your earnings predictions, supported by your calculations and reasoning.
             
             Panel C: Integrated Analysis and Summary
-            Combine Insights: Integrate the insights from your trend and ratio analyses to form a comprehensive view of the company’s financial outlook.
-            Evaluate Overall Position: Assess the company’s overall financial position, considering both strengths and weaknesses.
-            Predict Future Returns: Offer an informed prediction of expected returns, fully considering the factors analyzed in the previous panels. Ensure your prediction is logical, coherent, and supported by the analysis provided.
+            Combine Insights: Integrate the insights from your trend and ratio analyses to form a comprehensive view of the company’s earnings direction.
+            Predict Future Returns: Offer an informed prediction of expected earnings, fully considering the factors analyzed in the previous panels. Ensure your prediction is logical, coherent, and supported by the analysis provided.
 
             Response format:
                 Panel A ||| [text from Panel A analysis]

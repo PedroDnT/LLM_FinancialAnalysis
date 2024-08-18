@@ -23,6 +23,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Dict, List, Any
 from langchain.output_parsers import PydanticOutputParser
 from langchain_core.pydantic_v1 import BaseModel, Field, validator
+from langchain_fireworks import ChatFireworks
 
 # Constants for rate limiting
 TPM_LIMIT = 450000  # Tokens per minute
@@ -78,42 +79,30 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     return financial_data
 
 system_prompt = """
-            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. Your task is to analyze financial statements, specifically using the balance sheet and income statement, to predict future returns. Use your expertise to identify the most relevant metrics and indices for this analysis and base your predictions solely on this data. Apply a chain of thought approach to carefully reason through each step of your analysis. Structure your response in the following three panels:
+            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. 
+            Your task is to analyze financial statements, specifically using the balance sheet and income statement, to predict future earnings. 
+            Use your expertise to identify the most relevant metrics and indices for this analysis and base your predictions solely on this data. 
+            Apply a chain of thought approach to carefully reason through each step of your analysis. Structure your response in the following three panels:
 
             Panel A: Trend Analysis
-            Identify Key Trends: Begin by identifying the most significant trends in the financial statements.
-            Focus on Impact: Analyze how these trends are likely to impact future earnings, considering both positive and negative implications.
-            Document Observations: Clearly document your observations and the rationale behind selecting these trends, linking them directly to potential earnings outcomes for the target year.
+            Step 1 Identify Key Trends: Begin by identifying the most significant trends in the financial statements.
+            Step 2 Focus on Impact: Analyze how these trends are likely to impact future earnings, considering both positive and negative implications.
+            Step 3 Document Observations: Clearly document your observations and the rationale behind selecting these trends, linking them directly to potential earnings outcomes for the target year.
             
             Panel B: Ratio Analysis
-            Select Key Ratios: Choose and calculate the financial ratios that are most relevant for predicting future earnings.
-            Interpret Ratios: Carefully interpret these ratios in the context of the company’s overall financial health and potential for future earnings growth.
-            Explain the Significance: Provide a detailed explanation of how these ratios influence your earnings predictions, supported by your calculations and reasoning.
+            Step 1 Select Key Ratios: Choose and calculate the financial ratios that are most relevant for predicting future earnings.
+            Step 2 Interpret Ratios: Carefully interpret these ratios in the context of the company’s overall financial health and potential for future earnings growth.
+            Step 3 Explain the Significance: Provide a detailed explanation of how these ratios influence your earnings predictions, supported by your calculations and reasoning.
             
             Panel C: Integrated Analysis and Summary
-            Combine Insights: Integrate the insights from your trend and ratio analyses to form a comprehensive view of the company’s financial outlook.
-            Evaluate Overall Position: Assess the company’s overall financial position, considering both strengths and weaknesses.
-            Predict Future Returns: Offer an informed prediction of expected returns, fully considering the factors analyzed in the previous panels. Ensure your prediction is logical, coherent, and supported by the analysis provided.
-
-            Response format:
-                Panel A ||| [text from Panel A analysis]
-                Panel B ||| [text from Panel B analysis]
-                Panel C ||| [text from Panel C analysis]
-                Direction ||| [1/-1]
-                Magnitude ||| [large/moderate/small]
-                Confidence ||| [0.00 to 1.00]
+            Step 1 Combine Insights: Integrate the insights from your trend and ratio analyses to form a comprehensive view of the company’s financial outlook.
+            Step 2 Predict Future Returns: Offer an informed prediction of expected returns, fully considering the factors analyzed in the previous panels. Ensure your prediction is logical, coherent, and supported by the analysis provided.
 
                 Guidelines:
                 - Remember to follow the chain of thought process by logically connecting each observation and calculation to your final prediction. Provide your response in a clear, structured format as outlined below.
                 - Do not include introductory text, titles, subtitles or disclaimers
-                - DO not include Panel Name in text
                 - The data is in Portuguese and data follow the standard financial statements format by Comissao de Valores Mobiliarios (CVM). Answer in English. 
-                - Use 1 for increase, -1 for decrease.
-                - Use large, moderate, or small for magnitude.
-                - Provide a confidence score between 0.00 and 1.00.
                 - Do not include Direction, Magnitude, or Confidence in Panel C.
-                - Separate sections with '|||' delimiter.
-                - Do not define any formula or ratios on response.
                 - No need to use full name of accounts or define calculations.
     """
 
@@ -139,10 +128,10 @@ def create_prompt_template() -> ChatPromptTemplate:
     return prompt.partial(format_instructions=parser.get_format_instructions())
 
 class FinancialAnalysis(BaseModel):
-    panel_a: str = Field(description="Trend analysis of financial statements and its impact on earnings")
-    panel_b: str = Field(description="Ratio analysis of financial ratios and its impact on earnings")
-    panel_c: str = Field(description="Integrated analysis and summary of predictions")
-    direction: int = Field(description="Predicted earnings direction (1 for increase, -1 for decrease)")
+    panel_a: str = Field(description="Detailend Trend analysis of financial statements and its impact on earnings")
+    panel_b: str = Field(description="Detailed Ratio analysis of financial ratios and its impact on earnings")
+    panel_c: str = Field(description="Detailed Integrated analysis and summary of predictions")
+    direction: int = Field(description="Predicted earnings direction (1 for increase, -1 for decrease) based on your analysis in panels")
     magnitude: str = Field(description="Predicted magnitude of change (large, moderate, or small)")
     confidence: float = Field(description="Confidence score between 0.00 and 1.00")
 
@@ -185,15 +174,6 @@ def clean_year_columns(financial_data):
                         del item[year]
     return financial_data
 
-def process_prompt_groq(prompt, year):
-    try:
-        print(f"Sending prompt for year {year}...")
-        messages = ["system", system_prompt, "human", prompt]
-        response=llm.invoke(messages)
-        return year, response
-    except Exception as e:
-        print(f"Error processing year {year}: {str(e)}")
-        return year, None
 
 def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -> Dict[int, Dict[str, Any]]:
     try:
@@ -219,9 +199,9 @@ def get_financial_prediction(financial_data: Dict[str, Any], n_years: int = 3) -
         
         if n_years is not None:
             target_years = target_years[-n_years:]
-
-        model_name = "mixtral-8x7b-32768"
-        chat = ChatGroq(model_name=model_name, temperature=1)
+        
+        model_name = "accounts/fireworks/models/llama-v3p1-70b-instruct"
+        chat = ChatFireworks(model_name=model_name, temperature=1)
         parser = PydanticOutputParser(pydantic_object=FinancialAnalysis)
 
         predictions = {}
