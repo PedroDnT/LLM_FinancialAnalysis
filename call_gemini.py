@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from utils import get_financial_statements_batch, get_company_name_by_cd_cvm
 import google.generativeai as genai
 import re
+import numpy as np
 
 def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
     """Fetches and returns financial data for the given CD_CVM list without including CD_CVM in the return JSON keys as a dictionary."""
@@ -44,28 +45,42 @@ def get_financial_data(CD_CVM_list: List[int]) -> Dict[str, Any]:
 def create_prompt_template() -> ChatPromptTemplate:
     """Creates a prompt template for the financial prediction task."""
     template = """
-    Analyze the provided financial data for the target year {target_year} and provide a concise prediction.FOllow the steps
-    Steps:
-    1. Review historical financial data and provide a concise analysis of the company's financial performance.
-    2. Perform a ratio analysis and provide a concise analysis of the ratios.
-    3. Given Your analysys in previous steps, make a conclusion on the best estimate of earnings direction and provide rationale based on your analysis.
+            You are a Brazilian financial analyst specializing in analyzing financial statements and forecasting earnings direction. Your task is to analyze financial statements, specifically using the balance sheet and income statement, to predict future returns. Use your expertise to identify the most relevant metrics and indices for this analysis and base your predictions solely on this data. Apply a chain of thought approach to carefully reason through each step of your analysis. Structure your response in the following three panels:
 
-    Response format:
-        Panel A ||| [text from step 1]
-        Panel B ||| [text from step 2]
-        Panel C ||| [text from step 3]
-        Direction ||| [1/-1]
-        Magnitude ||| [large/moderate/small]
-        Confidence ||| [0.00 to 1.00]
+            Panel A: Trend Analysis
+            Identify Key Trends: Begin by identifying the most significant trends in the financial statements.
+            Focus on Impact: Analyze how these trends are likely to impact future earnings, considering both positive and negative implications.
+            Document Observations: Clearly document your observations and the rationale behind selecting these trends, linking them directly to potential earnings outcomes for the target year.
+            
+            Panel B: Ratio Analysis
+            Select Key Ratios: Choose and calculate the financial ratios that are most relevant for predicting future earnings.
+            Interpret Ratios: Carefully interpret these ratios in the context of the company’s overall financial health and potential for future earnings growth.
+            Explain the Significance: Provide a detailed explanation of how these ratios influence your earnings predictions, supported by your calculations and reasoning.
+            
+            Panel C: Integrated Analysis and Summary
+            Combine Insights: Integrate the insights from your trend and ratio analyses to form a comprehensive view of the company’s earnings direction.
+            Predict Future Returns: Offer an informed prediction of expected earnings, fully considering the factors analyzed in the previous panels. Ensure your prediction is logical, coherent, and supported by the analysis provided.
 
-        Guidelines:
-        - Be precise and concise.
-        - Use 1 for increase, -1 for decrease.
-        - Use large, moderate, or small for magnitude.
-        - Provide a confidence score between 0.00 and 1.00.
-        - Do not include Direction, Magnitude, or Confidence in Panel C.
-        - Separate sections with '|||' delimiter.
-        - Do not define any formula or ratios on response.
+            Response format:
+                Panel A ||| [text from Panel A analysis]
+                Panel B ||| [text from Panel B analysis]
+                Panel C ||| [text from Panel C analysis]
+                Direction ||| [1/-1]
+                Magnitude ||| [large/moderate/small]
+                Confidence ||| [0.00 to 1.00]
+
+             Guidelines:
+                - Remember to follow the chain of thought process by logically connecting each observation and calculation to your final prediction. Provide your response in a clear, structured format as outlined below.
+                - Do not include introductory text, titles, subtitles or disclaimers
+                - The data is in Portuguese and data follow the standard financial statements format by Comissao de Valores Mobiliarios (CVM). Answer in English. 
+                - Use 1 for increase, -1 for decrease.
+                - Use large, moderate, or small for magnitude.
+                - Provide a confidence score between 0.00 and 1.00.
+                - Do not include Direction, Magnitude, or Confidence in Panel C.
+                - Separate sections with '|||' delimiter.
+                - Do not define any formula or ratios on response.
+                - No need to use full name of accounts or define calculations.
+
     Financial data:
     Income Statements: {financial_data[income_statements]}
     Balance Sheets: {financial_data[balance_sheets]}
@@ -76,7 +91,7 @@ def create_prompt_template() -> ChatPromptTemplate:
 def gemini_pro_completion(prompt, model):
     try:
         response = model.generate_content(prompt)
-        return response.text
+        return response
     except Exception as e:
         print(f"Error calling Gemini API: {str(e)}")
         return None
@@ -167,22 +182,35 @@ def get_financial_prediction_g(financial_data: Dict[str, Any], n_years: int = No
                     result_year, prompt = future.result()
                     if prompt is not None:
                         response = gemini_pro_completion(prompt, model)
+                        text = response.text
+                        metadata = response.usage_metadata
                         if response is not None:
                             predictions[result_year] = response
                 except Exception as e:
                     print(f"Error processing future for year {year}: {str(e)}")
 
         print("Predictions received.")
-        return predictions
+        return predictions, metadata, model
     except Exception as e:
         print(f"An error occurred in get_financial_prediction: {str(e)}")
         import traceback
         traceback.print_exc()
         return {}
 
-def parse_financial_prediction(prediction_dict: Dict[int, str], cd_cvm: int) -> pd.DataFrame:
+def parse_financial_prediction(prediction_data, cd_cvm: int) -> pd.DataFrame:
     parsed_data = []
-    for year, text in prediction_dict.items():
+    
+    # Check if prediction_data is a tuple (as returned by get_financial_prediction_g)
+    if isinstance(prediction_data, tuple):
+        predictions, metadata, model = prediction_data
+    else:
+        predictions = prediction_data
+        metadata = None
+        model = none
+
+    for year, response in predictions.items():
+        text = response.text
+        
         # Extract the panels
         panel_a = text.split('Panel A |||')[1].split('Panel B |||')[0].strip()
         panel_b = text.split('Panel B |||')[1].split('Panel C |||')[0].strip()
@@ -209,7 +237,11 @@ def parse_financial_prediction(prediction_dict: Dict[int, str], cd_cvm: int) -> 
             'Panel C': panel_c.replace('\n', ' '),
             'Prediction Direction': direction,
             'Magnitude': magnitude,
-            'Confidence': confidence
+            'Confidence': confidence,
+            'Prompt Tokens': metadata.prompt_token_count,
+            'Completion Tokens': metadata.candidates_token_count,
+            'Total Tokens': metadata.total_token_count,
+            'Model Name': model.model_name  # Add the model to the parsed data
         })
     
     return pd.DataFrame(parsed_data)
