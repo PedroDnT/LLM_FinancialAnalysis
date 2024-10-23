@@ -1,0 +1,13 @@
+pandas
+sqlalchemy
+langchain-core
+scikit-learn
+langchain-openai
+langchain-community
+unidecode
+tqdm
+requests
+beautifulsoup4
+openai
+python-dotenv
+psycopg2-binary
